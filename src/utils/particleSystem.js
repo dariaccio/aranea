@@ -21,11 +21,12 @@ gsap.registerPlugin(ScrollTrigger)
 
 // ─── Module state ──────────────────────────────────────────────────────────
 let renderer, scene, camera, points, material, geometry
-let clock, rafId, lenis
+let clock, rafId
 let particleCount = 0
 let tier          = 'high'
 let config        = {}
 let frameCounter  = 0
+let activeSection = 0
 
 // Buffer arrays
 let positions, targets, velocities, colors, sizes, phases, alphas
@@ -45,9 +46,7 @@ let logoFormation = null
 let explosionLevel = 0
 
 // ─── Init ──────────────────────────────────────────────────────────────────
-export function initParticleSystem(canvas, lenisInstance) {
-  lenis = lenisInstance
-
+export function initParticleSystem(canvas) {
   tier   = getPerformanceTier()
   config = PARTICLE_CONFIG[tier]
   particleCount = PARTICLE_COUNTS[tier]
@@ -141,9 +140,6 @@ function tick() {
   const delta     = Math.min(clock.getDelta(), 0.05)
   const elapsed   = clock.getElapsedTime()
 
-  // Advance Lenis smooth scroll
-  if (lenis) lenis.raf(timestamp)
-
   // Advance GSAP tweens
   gsap.updateRoot(timestamp * 0.001)
 
@@ -214,6 +210,7 @@ export function triggerExplosion(intensity = 1.0) {
 
 // ─── Apply a formation to targets ─────────────────────────────────────────
 export function setFormation(index) {
+  activeSection = index
   applyFormation(index)
 }
 
@@ -249,6 +246,10 @@ async function loadLogoFormation() {
     if (result) {
       logoFormation = result
       console.log('[ParticleSystem] Logo formation ready.')
+      // When logo formation becomes available and we are on that section, apply it
+      if (activeSection === 7) {
+        applyFormation(7)
+      }
     }
   } catch (err) {
     console.warn('[ParticleSystem] Logo sampling failed:', err)

@@ -89,8 +89,8 @@
   --duration-xslow:   1100ms;
 
   /* Z-index */
-  --z-canvas:  0;
+  --z-canvas:  9999; /* Particle layer above everything */
   --z-content: 10;
   --z-nav:     100;
-  --z-cursor:  200;
+  --z-cursor:  10000; /* Cursor remains above particles */
 }

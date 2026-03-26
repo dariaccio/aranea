@@ -18,8 +18,8 @@ export function useLenis() {
       smoothWheel: true,
       wheelMultiplier: 1.0,
       touchMultiplier: 2.2,
-      // Let Three.js tick call lenis.raf() — disable Lenis's own loop
-      autoRaf: false
+      // Ensure wheel works even if particle loop has not started
+      autoRaf: true
     })
 
     lenisRef.current  = lenis

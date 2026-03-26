@@ -17,8 +17,7 @@ export default function ParticleCanvas({ currentSection, scrollVelocity }) {
     if (!canvasRef.current || initialized.current) return
     initialized.current = true
 
-    const lenis   = getLenis()
-    const cleanup = initParticleSystem(canvasRef.current, lenis)
+    const cleanup = initParticleSystem(canvasRef.current)
 
     // Pointer / touch interaction
     const handleMouseMove = (e) => {
