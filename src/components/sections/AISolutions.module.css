@@ -1,0 +1,104 @@
+.ai {
+  padding-block: var(--space-32);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-16);
+  align-items: center;
+}
+
+/* Image */
+.imageWrap {
+  position: relative;
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+}
+
+.image {
+  width: 100%;
+  height: auto;
+  max-height: 560px;
+  object-fit: cover;
+  display: block;
+  filter: saturate(0.8) brightness(0.75);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--color-border);
+}
+
+.imageOverlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    135deg,
+    rgba(123,47,190,0.12) 0%,
+    transparent 50%,
+    rgba(0,212,255,0.06) 100%
+  );
+  border-radius: var(--radius-xl);
+}
+
+.badge {
+  position: absolute;
+  top: var(--space-4);
+  right: var(--space-4);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0.35rem 0.85rem;
+  background: rgba(6,8,13,0.75);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--color-border-glow);
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-semi);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-accent);
+}
+
+.badgeDot {
+  width: 6px;
+  height: 6px;
+  background: var(--color-particle-core);
+  border-radius: 50%;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(0,212,255,0.5); }
+  50%       { opacity: 0.7; box-shadow: 0 0 0 4px rgba(0,212,255,0); }
+}
+
+/* Text */
+.text { max-width: 560px; }
+
+.features {
+  margin-top: var(--space-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.feature {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  font-weight: var(--font-weight-regular);
+}
+
+.featureDot {
+  width: 5px;
+  height: 5px;
+  background: var(--color-particle-core);
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+@media (max-width: 900px) {
+  .grid { grid-template-columns: 1fr; gap: var(--space-12); }
+  .text { max-width: 100%; }
+}

@@ -1,0 +1,98 @@
+.method {
+  padding-block: var(--space-32);
+}
+
+.header {
+  max-width: 620px;
+  margin-bottom: var(--space-16);
+}
+
+.intro {
+  font-size: var(--text-base);
+  font-weight: var(--font-weight-light);
+  line-height: 1.75;
+  color: var(--color-text-secondary);
+  margin-top: var(--space-5);
+}
+
+/* Steps grid */
+.steps {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-6);
+  position: relative;
+}
+
+.step {
+  position: relative;
+  padding: var(--space-8) var(--space-6);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  transition: border-color var(--duration-slow) var(--ease-out-expo),
+              transform var(--duration-base) var(--ease-out-expo);
+}
+
+.step:hover {
+  border-color: rgba(0, 212, 255, 0.2);
+  transform: translateY(-3px);
+}
+
+/* Top glow bar */
+.step::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 20%;
+  right: 20%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--color-particle-core), transparent);
+  opacity: 0;
+  transition: opacity var(--duration-slow) var(--ease-out-expo);
+}
+.step:hover::before { opacity: 0.6; }
+
+.stepNum {
+  font-size: var(--text-3xl);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: -0.03em;
+  color: rgba(0, 212, 255, 0.18);
+  line-height: 1;
+  margin-bottom: var(--space-6);
+  transition: color var(--duration-base) var(--ease-out-expo);
+}
+
+.step:hover .stepNum {
+  color: rgba(0, 212, 255, 0.35);
+}
+
+.stepContent {}
+
+.stepTitle {
+  font-size: var(--text-xl);
+  font-weight: var(--font-weight-semi);
+  color: var(--color-text-primary);
+  margin-bottom: var(--space-3);
+  letter-spacing: -0.01em;
+}
+
+.stepBody {
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-light);
+  line-height: 1.7;
+  color: var(--color-text-secondary);
+}
+
+/* Connector (desktop only) */
+.connector {
+  display: none; /* decorative; hidden on mobile */
+}
+
+@media (max-width: 1024px) {
+  .steps { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 580px) {
+  .steps { grid-template-columns: 1fr; }
+  .step  { padding: var(--space-6); }
+}

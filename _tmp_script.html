@@ -1,0 +1,715 @@
+
+<script type="module">
+import * as THREE from 'three'
+
+// ═══════════════════════════════════════════════════════════════════
+// CONFIGURATION
+// ═══════════════════════════════════════════════════════════════════
+const REDUCED = window.matchMedia('(prefers-reduced-motion:reduce)').matches
+const IS_MOB  = window.innerWidth < 768
+const LOW_END = navigator.hardwareConcurrency <= 2
+const TIER    = REDUCED ? 'minimal' : (IS_MOB && LOW_END) ? 'low' : IS_MOB ? 'mid' : 'high'
+const N       = { high:4500, mid:1800, low:750, minimal:300 }[TIER]
+const DO_PTR  = !REDUCED && TIER !== 'low' && TIER !== 'minimal'
+const DO_PHYS = !REDUCED
+
+// Spring constants — normal vs logo-lock mode
+const K_NORM = 0.068, D_NORM = 0.76
+const K_LOGO = 0.20,  D_LOGO = 0.83
+
+// Pointer repulsion
+const REP_R = 185, REP_F = 7.8
+
+// Explosion base force
+const EXPL_BASE = 24
+
+// Electric blue / cyan palette
+const PALETTE = [
+  [0.00,0.83,1.00],[0.00,0.70,0.88],[0.23,0.51,0.97],
+  [0.35,0.75,1.00],[0.00,0.60,0.80],[0.12,0.47,0.85],
+  [0.55,0.88,1.00],[0.08,0.62,0.92]
+]
+
+// ═══════════════════════════════════════════════════════════════════
+// SHADERS
+// ═══════════════════════════════════════════════════════════════════
+const VERT = `
+attribute float aSize;
+attribute vec3  aColor;
+attribute float aPhase;
+attribute float aAlpha;
+attribute float aParallax;
+
+uniform float uTime;
+uniform float uPR;
+uniform float uExp;
+uniform float uScrollY;
+uniform float uBreath;
+
+varying vec3  vColor;
+varying float vAlpha;
+
+void main(){
+  vColor = aColor;
+
+  // Per-particle shimmer
+  float shimmer = 0.82 + 0.18 * sin(uTime * 1.9 + aPhase);
+  float ep      = 1.0  + uExp * 0.6;
+
+  // Formation breathing: gentle oscillation when settled
+  float bx = sin(uTime * 0.55 + aPhase)        * uBreath * 0.55;
+  float by = cos(uTime * 0.42 + aPhase * 1.31) * uBreath;
+
+  // Scroll parallax: deeper particles shift more on Y as page scrolls
+  float pShift = aParallax * uScrollY * 0.20;
+
+  vec3  p  = position + vec3(bx, by - pShift, 0.0);
+  vec4  mv = modelViewMatrix * vec4(p, 1.0);
+
+  float sz = aSize * shimmer * ep * uPR;
+  gl_PointSize = clamp(sz * (300.0 / max(-mv.z, 0.1)), 1.0, 30.0);
+  gl_Position  = projectionMatrix * mv;
+
+  // Alpha: depth fade + parallax fade (particles shifted far off-screen fade out)
+  float depthFade = smoothstep(-600.0, -60.0, mv.z);
+  float outFade   = 1.0 - smoothstep(100.0, 400.0, abs(pShift));
+  vAlpha = aAlpha * depthFade * outFade;
+}
+`
+
+const FRAG = `
+varying vec3  vColor;
+varying float vAlpha;
+
+void main(){
+  vec2  uv   = gl_PointCoord - 0.5;
+  float d    = length(uv);
+  if (d > 0.5) discard;
+
+  // Tight bright core
+  float core  = pow(1.0 - d * 2.0, 2.5);
+  // Wide soft halo
+  float halo  = pow(max(0.0, 1.0 - d * 2.0), 0.75) * 0.32;
+  // Inner bloom spike
+  float bloom = pow(max(0.0, 1.0 - d * 3.2), 5.0) * 0.65;
+
+  vec3 col = mix(vColor, vec3(1.0), core * 0.62);
+  col     += vec3(bloom * 0.32, bloom * 0.68, bloom);
+  col     += vColor * halo;
+
+  gl_FragColor = vec4(col, (core + halo * 0.4) * vAlpha);
+}
+`
+
+// ═══════════════════════════════════════════════════════════════════
+// FORMATION GENERATORS  (8 distinct configurations)
+// ═══════════════════════════════════════════════════════════════════
+const rng = (a, b) => a + Math.random() * (b - a)
+const rCol = () => PALETTE[Math.floor(Math.random() * PALETTE.length)]
+
+// Write color/size/phase/alpha/parallax for particle i
+function meta(col, siz, pha, alp, par, i, ss = 1) {
+  const [r,g,b] = rCol()
+  col[i*3]=r; col[i*3+1]=g; col[i*3+2]=b
+  siz[i] = rng(1.5, 4.2) * ss
+  pha[i] = Math.random() * Math.PI * 2
+  alp[i] = 0.45 + Math.random() * 0.55
+  par[i] = Math.random()   // parallax depth (0=near, 1=far)
+}
+
+// 0 · Spherical nebula — diffuse cloud biased toward centre
+function fNebula(pos, col, siz, pha, alp, par, n, W, H) {
+  const R = Math.min(W,H) * 0.68
+  for (let i = 0; i < n; i++) {
+    const phi = Math.acos(1 - 2*(i+.5)/n), th = Math.PI*(1+Math.sqrt(5))*i
+    const r   = R * Math.cbrt(Math.random()) * (0.4 + Math.random()*0.6)
+    pos[i*3]   = r*Math.sin(phi)*Math.cos(th)
+    pos[i*3+1] = r*Math.cos(phi)*rng(-0.7, 1.4)
+    pos[i*3+2] = rng(-200, 80)
+    meta(col, siz, pha, alp, par, i)
+  }
+}
+
+// 1 · Web / network graph — nodes + edge paths
+function fNetwork(pos, col, siz, pha, alp, par, n, W, H) {
+  const S = Math.min(W,H)*0.76, NDS = 16
+  const nd = Array.from({length:NDS}, () => ({x:rng(-S,S), y:rng(-S*.65,S*.65)}))
+  const pn = Math.floor(n/NDS)
+  for (let i = 0; i < n; i++) {
+    const ni = Math.min(Math.floor(i/pn), NDS-1)
+    if (Math.random() > .5) {
+      const n2 = nd[Math.floor(Math.random()*NDS)], t = Math.random()
+      pos[i*3]   = nd[ni].x + (n2.x-nd[ni].x)*t + rng(-14,14)
+      pos[i*3+1] = nd[ni].y + (n2.y-nd[ni].y)*t + rng(-14,14)
+    } else {
+      const d = rng(5,55), a = Math.random()*Math.PI*2
+      pos[i*3] = nd[ni].x + Math.cos(a)*d; pos[i*3+1] = nd[ni].y + Math.sin(a)*d
+    }
+    pos[i*3+2] = rng(-130, 65)
+    meta(col, siz, pha, alp, par, i, 0.85)
+  }
+}
+
+// 2 · Three vertical columns
+function fColumns(pos, col, siz, pha, alp, par, n, W, H) {
+  const cx = [-W*.38, 0, W*.38], cw = W*.22, pn = Math.floor(n/3)
+  for (let i = 0; i < n; i++) {
+    const c = Math.min(Math.floor(i/pn), 2)
+    pos[i*3]   = cx[c] + rng(-cw*.4, cw*.4)
+    pos[i*3+1] = rng(-H*.65, H*.65)
+    pos[i*3+2] = rng(-220, 80)
+    meta(col, siz, pha, alp, par, i, 0.9)
+  }
+}
+
+// 3 · Multi-frequency sinusoidal ribbon
+function fRibbon(pos, col, siz, pha, alp, par, n, W, H) {
+  const sp = W*1.4, amp = H*.4
+  for (let i = 0; i < n; i++) {
+    const t = (i/n)*Math.PI*5 - Math.PI*2.5
+    pos[i*3]   = (i/n - 0.5) * sp
+    pos[i*3+1] = amp*Math.sin(t)*.62 + amp*Math.sin(t*1.7)*.28 + rng(-22,22)
+    pos[i*3+2] = amp*.4*Math.cos(t*.8) + rng(-90,90)
+    meta(col, siz, pha, alp, par, i, 0.85)
+  }
+}
+
+// 4 · Concentric elliptical rings at varied depth
+function fRings(pos, col, siz, pha, alp, par, n, W, H) {
+  const RINGS = 6, maxR = Math.min(W,H)*.74, pn = Math.floor(n/RINGS)
+  for (let i = 0; i < n; i++) {
+    const ring  = Math.min(Math.floor(i/pn), RINGS-1)
+    const R     = maxR * ((ring+1)/RINGS) * (0.85+Math.random()*.3)
+    const angle = ((i%pn)/pn)*Math.PI*2 + rng(-0.08, 0.08)
+    const sc    = 14 + ring*4
+    pos[i*3]   = Math.cos(angle)*R + rng(-sc,sc)
+    pos[i*3+1] = Math.sin(angle)*R*.45 + rng(-sc*.5,sc*.5)
+    pos[i*3+2] = -ring*30 + rng(-45,45)
+    meta(col, siz, pha, alp, par, i, 0.7+(RINGS-ring)/RINGS*.6)
+  }
+}
+
+// 5 · Triple-arm logarithmic vortex / helix
+function fVortex(pos, col, siz, pha, alp, par, n, W, H) {
+  const ARMS = 3, maxR = Math.min(W,H)*.62
+  for (let i = 0; i < n; i++) {
+    const arm = i%ARMS, t = Math.floor(i/ARMS)/(n/ARMS)
+    const angle = t*Math.PI*2*4.5 + (arm/ARMS)*Math.PI*2
+    const r = maxR*t*(0.85+Math.random()*.15), sc = 8+t*32
+    pos[i*3]   = Math.cos(angle)*r + rng(-sc,sc)
+    pos[i*3+1] = Math.sin(angle)*r*.6 + rng(-sc*.5,sc*.5) - H*.08
+    pos[i*3+2] = t*-170 + rng(-65,65)
+    meta(col, siz, pha, alp, par, i, 0.7+t*.5)
+  }
+}
+
+// 6 · Four Gaussian quadrant clusters (maps to 4-step method)
+function fQuadrants(pos, col, siz, pha, alp, par, n, W, H) {
+  const cx = W*.36, cy = H*.3, sp = Math.min(W,H)*.24
+  const ctrs = [[-cx,cy],[cx,cy],[-cx,-cy],[cx,-cy]], pn = Math.floor(n/4)
+  for (let i = 0; i < n; i++) {
+    const q = Math.min(Math.floor(i/pn), 3)
+    const r = sp*Math.sqrt(-2*Math.log(Math.max(.001,Math.random())))*.42
+    const a = Math.random()*Math.PI*2
+    pos[i*3]   = ctrs[q][0] + Math.cos(a)*r
+    pos[i*3+1] = ctrs[q][1] + Math.sin(a)*r
+    pos[i*3+2] = rng(-160, 75)
+    meta(col, siz, pha, alp, par, i, 0.8+Math.random()*.4)
+  }
+}
+
+// Formation 7 = logo (async); placeholder = nebula
+const FILL_FNS = [fNebula,fNetwork,fColumns,fRibbon,fRings,fVortex,fQuadrants,fNebula]
+
+// ═══════════════════════════════════════════════════════════════════
+// SVG LOGO SAMPLER  —  inline SVG, no fetch required
+// ═══════════════════════════════════════════════════════════════════
+const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 116.48 133.78" style="background:#000">
+<defs><style>
+  .c1{fill:white;stroke:white;stroke-width:3}
+  .c2{fill:none}
+  .c3{fill:none;stroke:white;stroke-miterlimit:10;stroke-width:3.5px}
+  .c4{clip-path:url(#cp)}
+</style>
+<clipPath id="cp"><path class="c2" d="M1.83,33.87L58.15,1.19c.21-.12.46-.12.67,0l56.33,32.68c.2.12.33.34.33.57v65.37c0,.24-.13.46-.33.57l-56.33,32.68c-.21.12-.46.12-.67,0L1.83,100.39c-.2-.12-.33-.34-.33-.57V34.44c0-.24.13-.46.33-.57Z"/></clipPath>
+</defs>
+<g><g class="c4">
+<path class="c3" d="M75.98,3.46c.09,0,.16.07.16.16l.2,31.68c0,.06-.03.11-.08.14l-6.58,4.23c-.08.05-.18.03-.23-.05-.05-.08-.03-.18.05-.23l6.5-4.18-.2-31.59c0-.09.07-.17.16-.17h0Z"/>
+<path class="c3" d="M40.18,3.46c-.09,0-.16.07-.16.16l-.2,31.68c0,.06.03.11.08.14l6.58,4.23c.08.05.18.03.23-.05.05-.08.03-.18-.05-.23l-6.5-4.18.2-31.59c0-.09-.07-.17-.16-.17h0Z"/>
+<path class="c3" d="M29.08,50.2h0l-7.69-.4c-.05,0-.1-.03-.13-.08L1.19,18.56c-.05-.08-.03-.18.05-.23.08-.05.18-.03.23.05l20.01,31.1,7.61.4c.09,0,.16.08.16.17,0,.09-.08.16-.16.16Z"/>
+<path class="c3" d="M87.89,50.2h0l7.69-.4c.05,0,.1-.03.13-.08l20.06-31.17c.05-.08.03-.18-.05-.23-.08-.05-.18-.03-.23.05l-20.01,31.1-7.61.4c-.09,0-.16.08-.16.17,0,.09.08.16.16.16Z"/>
+<path class="c3" d="M75.98,130.5c.09,0,.16-.07.16-.16l.2-31.68c0-.06-.03-.11-.08-.14l-6.58-4.23c-.08-.05-.18-.03-.23.05-.05.08-.03.18.05.23l6.5,4.18-.2,31.59c0,.09.07.17.16.17h0Z"/>
+<path class="c3" d="M40.18,130.5c-.09,0-.16-.07-.16-.16l-.2-31.68c0-.06.03-.11.08-.14l6.58-4.23c.08-.05.18-.03.23.05.05.08.03.18-.05.23l-6.5,4.18.2,31.59c0,.09-.07.17-.16.17h0Z"/>
+<path class="c3" d="M29.08,83.75h0l-7.69.4c-.05,0-.1.03-.13.08L1.19,115.4c-.05.08-.03.18.05.23.08.05.18.03.23-.05l20.01-31.1,7.61-.4c.09,0,.16-.08.16-.17,0-.09-.08-.16-.16-.16Z"/>
+<path class="c3" d="M87.23,83.75h0s7.69.4,7.69.4c.05,0,.1.03.13.08l20.06,31.17c.05.08.03.18-.05.23-.08.05-.18.03-.23-.05l-20.01-31.1-7.61-.4c-.09,0-.16-.08-.16-.17,0-.09.08-.16.16-.16Z"/>
+</g>
+<path class="c3" d="M29.08,50.43c0-.24.13-.45.33-.57l28.5-16.45c.2-.12.45-.12.66,0l28.5,16.45c.2.12.33.33.33.57v32.91c0,.24-.13.45-.33.57l-28.5,16.45c-.2.12-.45.12-.66,0l-28.5-16.45c-.2-.12-.33-.33-.33-.57v-32.91Z"/>
+<path class="c3" d="M76.64,66.21l-18.17,8.76c-.17.08-.31.08-.48,0l-18.16-8.88M39.84,79.97v-20.55c0-.22.12-.42.3-.53l17.79-10.27c.19-.11.42-.11.61,0l17.79,10.27c.19.11.3.31.3.53v20.55"/>
+<path class="c1" d="M58.24,133.78c-.41,0-.81-.11-1.16-.31L1.16,101.18c-.71-.41-1.16-1.18-1.16-2.01V34.6c0-.82.44-1.59,1.16-2.01L57.08.3c.7-.41,1.61-.41,2.32,0l55.92,32.29c.71.41,1.16,1.18,1.16,2.01v64.58c0,.83-.44,1.59-1.16,2.01l-55.92,32.29c-.35.2-.75.31-1.16.31ZM58.24,1.99c-.06,0-.11.01-.16.04L2.16,34.32c-.1.06-.16.16-.16.27v64.58c0,.11.06.22.16.27l55.92,32.29c.1.06.22.06.32,0l55.92-32.29c.1-.06.16-.16.16-.27V34.6c0-.11-.06-.22-.16-.27L58.4,2.04s-.1-.04-.16-.04Z"/>
+</g></svg>`
+
+async function sampleLogo(n, W, H) {
+  try {
+    const SZ = 512
+    const blob = new Blob([LOGO_SVG], { type:'image/svg+xml' })
+    const url  = URL.createObjectURL(blob)
+    let canvas, ctx
+    if (typeof OffscreenCanvas !== 'undefined') {
+      canvas = new OffscreenCanvas(SZ, SZ); ctx = canvas.getContext('2d')
+    } else {
+      canvas = document.createElement('canvas'); canvas.width = canvas.height = SZ
+      canvas.style.cssText = 'position:absolute;left:-9999px;visibility:hidden'
+      document.body.appendChild(canvas); ctx = canvas.getContext('2d')
+    }
+    await new Promise((res, rej) => {
+      const img = new Image()
+      img.onload = () => { ctx.fillStyle='#000'; ctx.fillRect(0,0,SZ,SZ); ctx.drawImage(img,0,0,SZ,SZ); res() }
+      img.onerror = rej; img.src = url
+    })
+    URL.revokeObjectURL(url)
+    if (canvas.parentNode) canvas.parentNode.removeChild(canvas)
+
+    const px = ctx.getImageData(0,0,SZ,SZ).data
+    const cands = []
+    for (let y = 0; y < SZ; y += 2)
+      for (let x = 0; x < SZ; x += 2) {
+        const ii = (y*SZ+x)*4
+        if (Math.max(px[ii], px[ii+1], px[ii+2]) > 28) cands.push({x,y})
+      }
+    if (cands.length < 50) { console.warn('[logo] sparse sampling:', cands.length); return null }
+
+    const step    = Math.max(1, Math.floor(cands.length/n))
+    const sampled = cands.filter((_,i) => i%step===0).slice(0, n)
+    const sc = 0.60, sx = (W*2*sc)/SZ, sy = (H*2*sc)/SZ
+
+    const pos=new Float32Array(n*3), col=new Float32Array(n*3), siz=new Float32Array(n)
+    const pha=new Float32Array(n),   alp=new Float32Array(n),   par=new Float32Array(n)
+
+    for (let i = 0; i < n; i++) {
+      if (i < sampled.length) {
+        pos[i*3]   = (sampled[i].x - SZ/2) * sx
+        pos[i*3+1] = -(sampled[i].y - SZ/2) * sy
+        pos[i*3+2] = (Math.random() - 0.5) * 25
+        alp[i]     = 0.78 + Math.random() * 0.22
+      } else {
+        pos[i*3]   = (Math.random()-.5) * W * 2.6
+        pos[i*3+1] = (Math.random()-.5) * H * 2.6
+        pos[i*3+2] = -400 - Math.random() * 200
+        alp[i]     = 0.02
+      }
+      const [r,g,b] = rCol()
+      col[i*3]=r; col[i*3+1]=g; col[i*3+2]=b
+      siz[i] = rng(1.5, 3.8); pha[i] = Math.random()*Math.PI*2; par[i] = Math.random()*0.25
+    }
+    console.log('[logo] sampled', sampled.length, 'pixels for', n, 'particles')
+    return { pos, col, siz, pha, alp, par }
+  } catch(e) { console.warn('[logo] error', e); return null }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PARTICLE ENGINE
+// ═══════════════════════════════════════════════════════════════════
+class ParticleEngine {
+  constructor() {
+    this.vW = window.innerWidth
+    this.vH = window.innerHeight
+
+    // Pre-computed formation buffers (filled at init)
+    this.formations = []
+    this.logoFm     = null
+
+    // Working buffers
+    this.blendTgt   = new Float32Array(N*3)   // interpolated target positions
+    this.pos        = new Float32Array(N*3)   // current rendered positions
+    this.vel        = new Float32Array(N*3)   // velocities
+
+    // Per-particle attribute buffers
+    this.cols = new Float32Array(N*3)
+    this.szs  = new Float32Array(N)
+    this.phs  = new Float32Array(N)
+    this.alps = new Float32Array(N)
+    this.pars = new Float32Array(N)
+
+    // State
+    this.explLvl   = 0    // 0-1, decays each frame
+    this.breathAmp = 0    // 0-8, grows when particles are settled
+    this.logoT     = 0    // 0-1, strengthens spring toward logo
+    this.ptr       = { x: 9999, y: 9999 }
+    this.clock     = null
+    this.frameN    = 0
+  }
+
+  init(canvas) {
+    // ── Three.js setup ──
+    this.renderer = new THREE.WebGLRenderer({
+      canvas, antialias: false, alpha: false, powerPreference: 'high-performance'
+    })
+    this.renderer.setSize(this.vW, this.vH)
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    this.renderer.setClearColor(0x06080d, 1)
+
+    this.scene = new THREE.Scene()
+    this.camera = new THREE.OrthographicCamera(
+      -this.vW/2, this.vW/2, this.vH/2, -this.vH/2, 1, 2000
+    )
+    this.camera.position.z = 500
+
+    // ── Geometry ──
+    this.geo = new THREE.BufferGeometry()
+    this.geo.setAttribute('position',  new THREE.BufferAttribute(this.pos,  3))
+    this.geo.setAttribute('aColor',    new THREE.BufferAttribute(this.cols, 3))
+    this.geo.setAttribute('aSize',     new THREE.BufferAttribute(this.szs,  1))
+    this.geo.setAttribute('aPhase',    new THREE.BufferAttribute(this.phs,  1))
+    this.geo.setAttribute('aAlpha',    new THREE.BufferAttribute(this.alps, 1))
+    this.geo.setAttribute('aParallax', new THREE.BufferAttribute(this.pars, 1))
+
+    // ── Material ──
+    this.mat = new THREE.ShaderMaterial({
+      vertexShader: VERT, fragmentShader: FRAG,
+      uniforms: {
+        uTime:    { value: 0 },
+        uPR:      { value: Math.min(devicePixelRatio, 2) },
+        uExp:     { value: 0 },
+        uScrollY: { value: 0 },
+        uBreath:  { value: 0 }
+      },
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
+    })
+
+    this.points = new THREE.Points(this.geo, this.mat)
+    this.scene.add(this.points)
+    this.clock = new THREE.Clock()
+
+    // ── Build all formations ──
+    this._precompute()
+
+    // ── Seed initial positions from formation 0 ──
+    this._applyMeta(this.formations[0])
+    this.blendTgt.set(this.formations[0].pos)
+    this.pos.set(this.blendTgt)
+    this.geo.attributes.position.needsUpdate = true
+
+    // ── Start render loop ──
+    this._tick()
+
+    // ── Responsive ──
+    window.addEventListener('resize', () => this._resize())
+
+    // ── Logo formation: async pixel-sample in background ──
+    sampleLogo(N, this.vW/2, this.vH/2).then(fm => {
+      if (fm) { this.logoFm = fm; console.log('[engine] logo formation ready') }
+    })
+
+    return this
+  }
+
+  // ─── Pre-compute all 8 formation position sets ───────────────────
+  _precompute() {
+    const W = this.vW/2, H = this.vH/2
+    for (let i = 0; i < 8; i++) {
+      const pos=new Float32Array(N*3), col=new Float32Array(N*3), siz=new Float32Array(N)
+      const pha=new Float32Array(N),   alp=new Float32Array(N),   par=new Float32Array(N)
+      FILL_FNS[i](pos, col, siz, pha, alp, par, N, W, H)
+      this.formations.push({ pos, col, siz, pha, alp, par })
+    }
+  }
+
+  // ─── Copy meta attributes from a formation to GPU buffers ────────
+  _applyMeta(fm) {
+    this.cols.set(fm.col); this.szs.set(fm.siz)
+    this.phs.set(fm.pha);  this.alps.set(fm.alp); this.pars.set(fm.par)
+    this.geo.attributes.aColor.needsUpdate    = true
+    this.geo.attributes.aSize.needsUpdate     = true
+    this.geo.attributes.aPhase.needsUpdate    = true
+    this.geo.attributes.aAlpha.needsUpdate    = true
+    this.geo.attributes.aParallax.needsUpdate = true
+  }
+
+  // ─── Continuously blend target positions between two formations ───
+  // Called every frame by ScrollEngine with the current scroll blend value
+  blendFormations(idx0, idx1, t) {
+    // Formation 7 uses the logo if available, otherwise falls back
+    const f0 = this.formations[Math.min(idx0, 7)]
+    const f1 = (idx1 === 7 && this.logoFm) ? this.logoFm
+                                            : this.formations[Math.min(idx1, 7)]
+
+    // Smoothstep easing so transitions accelerate mid-scroll
+    const s = t * t * (3 - 2*t)
+
+    for (let i = 0; i < N; i++) {
+      const i3 = i*3
+      this.blendTgt[i3]   = f0.pos[i3]   + (f1.pos[i3]   - f0.pos[i3])   * s
+      this.blendTgt[i3+1] = f0.pos[i3+1] + (f1.pos[i3+1] - f0.pos[i3+1]) * s
+      this.blendTgt[i3+2] = f0.pos[i3+2] + (f1.pos[i3+2] - f0.pos[i3+2]) * s
+    }
+
+    // Swap meta attributes at hard formation boundaries
+    if (t < 0.04)       this._applyMeta(f0)
+    else if (t > 0.96)  this._applyMeta(f1)
+  }
+
+  // ─── Outward velocity burst ───────────────────────────────────────
+  explode(intensity = 1) {
+    const b = EXPL_BASE * Math.max(0.3, Math.min(intensity, 3))
+    for (let i = 0; i < N; i++) {
+      this.vel[i*3]   += (Math.random() - 0.5) * b
+      this.vel[i*3+1] += (Math.random() - 0.5) * b
+      this.vel[i*3+2] += (Math.random() - 0.5) * 13
+    }
+    this.explLvl   = Math.min(1, intensity * 0.55)
+    this.breathAmp = 0   // silence breath during burst
+  }
+
+  // ─── Scroll Y for parallax uniform ───────────────────────────────
+  setScrollY(sy) { this.mat.uniforms.uScrollY.value = sy }
+
+  // ─── Logo spring strength 0-1 ────────────────────────────────────
+  setLogoPhase(t) { this.logoT = Math.max(0, Math.min(1, t)) }
+
+  // ─── Spring physics ───────────────────────────────────────────────
+  _physics() {
+    // Blend spring constants: normal ↔ logo-lock
+    const K = K_NORM + (K_LOGO - K_NORM) * this.logoT
+    const D = D_NORM + (D_LOGO - D_NORM) * this.logoT
+
+    for (let i = 0; i < N; i++) {
+      const i3 = i*3
+      for (let a = 0; a < 3; a++) {
+        const idx = i3+a
+        this.vel[idx] += (this.blendTgt[idx] - this.pos[idx]) * K
+        this.vel[idx] *= D
+        this.pos[idx] += this.vel[idx]
+      }
+    }
+    this.geo.attributes.position.needsUpdate = true
+  }
+
+  // ─── Pointer repulsion ────────────────────────────────────────────
+  _repulse() {
+    const px = this.ptr.x * this.vW/2
+    const py = this.ptr.y * this.vH/2
+    const rSq = REP_R * REP_R
+    for (let i = 0; i < N; i++) {
+      const i3 = i*3
+      const dx = this.pos[i3]-px, dy = this.pos[i3+1]-py
+      const dSq = dx*dx + dy*dy
+      if (dSq < rSq && dSq > 0.01) {
+        const d = Math.sqrt(dSq), f = (1-d/REP_R)*REP_F
+        this.vel[i3] += dx/d*f; this.vel[i3+1] += dy/d*f
+      }
+    }
+  }
+
+  // ─── Render loop (owns rAF) ───────────────────────────────────────
+  _tick() {
+    requestAnimationFrame(() => this._tick())
+    const dt = Math.min(this.clock.getDelta(), 0.05)
+    const el = this.clock.getElapsedTime()
+    this.frameN++
+
+    if (DO_PHYS || this.frameN % 2 === 0) {
+      this._physics()
+      if (DO_PTR) this._repulse()
+    }
+
+    // Decay explosion, grow breath
+    this.explLvl   *= 0.92
+    this.breathAmp += (8 - this.breathAmp) * 0.005
+
+    this.mat.uniforms.uTime.value   = el
+    this.mat.uniforms.uExp.value    = this.explLvl
+    this.mat.uniforms.uBreath.value = REDUCED ? 0 : this.breathAmp * (1 - this.explLvl)
+
+    this.renderer.render(this.scene, this.camera)
+  }
+
+  // ─── Resize ───────────────────────────────────────────────────────
+  _resize() {
+    this.vW = window.innerWidth; this.vH = window.innerHeight
+    this.renderer.setSize(this.vW, this.vH)
+    this.camera.left=-this.vW/2; this.camera.right=this.vW/2
+    this.camera.top=this.vH/2;   this.camera.bottom=-this.vH/2
+    this.camera.updateProjectionMatrix()
+    // Invalidate and rebuild all formations for new viewport size
+    this.formations = []
+    this.logoFm = null
+    this._precompute()
+    sampleLogo(N, this.vW/2, this.vH/2).then(fm => { if (fm) this.logoFm = fm })
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SCROLL ENGINE  — translates scrollY into continuous particle state
+// ═══════════════════════════════════════════════════════════════════
+class ScrollEngine {
+  constructor(engine) {
+    this.eng     = engine
+    this.scrollY = 0
+    this.vel     = 0          // scroll velocity (normalised, decays)
+    this.lastBoundary = -1    // last transition index we exploded on
+    this._bind()
+  }
+
+  _bind() {
+    window.addEventListener('scroll', () => {
+      this.vel = Math.abs(window.scrollY - this.scrollY) * 0.012
+      this.scrollY = window.scrollY
+    }, { passive: true });
+
+    // Dedicated rAF loop (runs alongside engine's own rAF)
+    const loop = () => { requestAnimationFrame(loop); this._update() }
+    requestAnimationFrame(loop)
+  }
+
+  _update() {
+    const maxScroll  = Math.max(1, document.body.scrollHeight - window.innerHeight)
+    const progress   = Math.min(1, this.scrollY / maxScroll)  // 0 → 1 full page
+
+    // 7 transitions span formations 0→1, 1→2, …, 6→7
+    const NUM_T   = 7
+    const raw     = progress * NUM_T
+    const secIdx  = Math.min(Math.floor(raw), NUM_T - 1)  // 0-6
+    const secT    = raw - secIdx                           // 0-1 within transition
+
+    // ── Continuous formation blend (every frame) ──────────────────
+    this.eng.blendFormations(secIdx, secIdx + 1, secT)
+
+    // ── Pass scroll position to parallax uniform ──────────────────
+    this.eng.setScrollY(this.scrollY)
+
+    // ── Explosion at each section boundary crossing ───────────────
+    if (secIdx !== this.lastBoundary) {
+      const intens = 0.55 + Math.min(this.vel * 2.8, 2.0)
+      this.eng.explode(intens)
+      this.lastBoundary = secIdx
+    }
+
+    // ── Velocity micro-burst during fast scroll ───────────────────
+    if (this.vel > 0.85) {
+      this.eng.explode(this.vel * 0.38)
+      this.eng.breathAmp *= 0.15
+    }
+
+    // ── Logo section: deepen spring pull as scroll settles ────────
+    // Transition 6 (formations 6→7): ramp up logo spring
+    if (secIdx >= 6) {
+      // logoT climbs from 0 once we are past 25% into this transition
+      const raw7 = Math.max(0, secT - 0.25) / 0.75
+      this.eng.setLogoPhase(Math.pow(raw7, 0.65))
+    } else {
+      this.eng.setLogoPhase(0)
+    }
+
+    // Velocity natural decay
+    this.vel *= 0.86
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// UI CONTROLLER
+// ═══════════════════════════════════════════════════════════════════
+
+// ── Frosted-glass nav on hero exit ──
+const navEl  = document.getElementById('nav')
+const heroEl = document.getElementById('hero')
+new IntersectionObserver(
+  ([e]) => navEl.classList.toggle('scrolled', !e.isIntersecting),
+  { threshold: 0.1 }
+).observe(heroEl)
+
+// ── Active nav dot per section ──
+const dotEls = document.querySelectorAll('.nav-dot')
+document.querySelectorAll('[data-si]').forEach(s => {
+  new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        const idx = parseInt(e.target.dataset.si)
+        dotEls.forEach((d, i) => d.classList.toggle('active', i === idx))
+      }
+    })
+  }, { threshold: 0.45 }).observe(s)
+})
+
+dotEls.forEach(d => {
+  d.addEventListener('click', () => {
+    const t = document.querySelector(`[data-si="${d.dataset.idx}"]`)
+    if (t) t.scrollIntoView({ behavior: 'smooth' })
+  })
+})
+
+// ── CTA logo: fade out once particles converge into logo shape ──
+const ctaLogoImg = document.querySelector('#cta-final .cta-logo img')
+if (ctaLogoImg) {
+  new IntersectionObserver(([e]) => {
+    if (e.isIntersecting) {
+      // Give particles ~1.4s to start assembling before fading HTML logo
+      setTimeout(() => {
+        ctaLogoImg.style.transition = 'opacity 2s ease'
+        ctaLogoImg.style.opacity    = '0.04'
+      }, 1400)
+    } else {
+      ctaLogoImg.style.transition = 'opacity 0.4s ease'
+      ctaLogoImg.style.opacity    = ''
+    }
+  }, { threshold: 0.55 }).observe(document.getElementById('cta-final'))
+}
+
+// ── Scroll reveal for section content ──
+const revObs = new IntersectionObserver(
+  es => es.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible') }),
+  { threshold: 0.15 }
+)
+document.querySelectorAll('.reveal').forEach(el => revObs.observe(el))
+// Trigger hero immediately
+setTimeout(() => document.querySelectorAll('#hero .reveal').forEach(el => el.classList.add('visible')), 80)
+
+// ── Custom cursor (pointer devices only) ──
+if (window.matchMedia('(pointer:fine)').matches) {
+  const dot  = document.getElementById('cur-dot')
+  const ring = document.getElementById('cur-ring')
+  const mouse = { x: innerWidth/2, y: innerHeight/2 }
+  const rpos  = { x: innerWidth/2, y: innerHeight/2 }
+  let hovering = false
+
+  window.addEventListener('mousemove',  e => { mouse.x = e.clientX; mouse.y = e.clientY })
+  document.addEventListener('mouseover', e => { if (e.target.closest('a,button')) hovering = true  })
+  document.addEventListener('mouseout',  e => { if (e.target.closest('a,button')) hovering = false })
+  window.addEventListener('mouseleave', () => { hovering = false });
+
+  (function animCursor() {
+    requestAnimationFrame(animCursor)
+    rpos.x += (mouse.x - rpos.x) * 0.13
+    rpos.y += (mouse.y - rpos.y) * 0.13
+    dot.style.transform  = `translate(${mouse.x}px,${mouse.y}px) translate(-50%,-50%)`
+    ring.style.transform = `translate(${rpos.x}px,${rpos.y}px) translate(-50%,-50%)`
+    dot.classList.toggle('hover',  hovering)
+    ring.classList.toggle('hover', hovering)
+  })()
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// BOOTSTRAP
+// ═══════════════════════════════════════════════════════════════════
+const engine = new ParticleEngine()
+engine.init(document.getElementById('c'))
+
+// Connect pointer to engine
+if (window.matchMedia('(pointer:fine)').matches) {
+  window.addEventListener('mousemove', e => {
+    engine.ptr.x =  (e.clientX / innerWidth)  * 2 - 1
+    engine.ptr.y = -(e.clientY / innerHeight)  * 2 + 1
+  })
+  window.addEventListener('mouseleave', () => { engine.ptr.x = 9999; engine.ptr.y = 9999 })
+} else {
+  window.addEventListener('touchmove', e => {
+    const t = e.touches[0]
+    engine.ptr.x =  (t.clientX / innerWidth)  * 2 - 1
+    engine.ptr.y = -(t.clientY / innerHeight)  * 2 + 1
+  }, { passive: true })
+  window.addEventListener('touchend', () => { engine.ptr.x = 9999; engine.ptr.y = 9999 })
+}
+
+new ScrollEngine(engine)
+</script>
+</body>
+</html>
