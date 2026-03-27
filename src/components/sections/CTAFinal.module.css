@@ -39,8 +39,9 @@
 }
 
 /* Reserves vertical space for the particle logo above the text.
-   35svh = logo centre from viewport top.
-   231px = logo half-height (201px at 350px wide) + 30px gap. */
+   35svh  = logo centre from viewport top (= H*0.30 above world centre).
+   231px  = half-height of a 350px-wide logo (201px) + 30px gap.
+   On mobile the logo is smaller so the gap grows — acceptable. */
 .logoSpacer {
   height: calc(35svh + 231px);
   flex-shrink: 0;

@@ -1,57 +1,84 @@
-// SVG viewBox dimensions — used to correct the letterboxed canvas layout
+// SVG viewBox dimensions
 const SVG_W = 116.48
 const SVG_H = 133.78
 
+// Inline fallback — used when the network fetch fails (identical to the SVG on the server)
+const LOGO_SVG_FALLBACK = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 116.48 133.78" style="background:#000">
+<defs><style>
+  .c1{fill:white;stroke:white;stroke-width:3}
+  .c2{fill:none}
+  .c3{fill:none;stroke:white;stroke-miterlimit:10;stroke-width:3.5px}
+  .c4{clip-path:url(#cp)}
+</style>
+<clipPath id="cp"><path class="c2" d="M1.83,33.87L58.15,1.19c.21-.12.46-.12.67,0l56.33,32.68c.2.12.33.34.33.57v65.37c0,.24-.13.46-.33.57l-56.33,32.68c-.21.12-.46.12-.67,0L1.83,100.39c-.2-.12-.33-.34-.33-.57V34.44c0-.24.13-.46.33-.57Z"/></clipPath>
+</defs>
+<g><g class="c4">
+<path class="c3" d="M75.98,3.46c.09,0,.16.07.16.16l.2,31.68c0,.06-.03.11-.08.14l-6.58,4.23c-.08.05-.18.03-.23-.05-.05-.08-.03-.18.05-.23l6.5-4.18-.2-31.59c0-.09.07-.17.16-.17h0Z"/>
+<path class="c3" d="M40.18,3.46c-.09,0-.16.07-.16.16l-.2,31.68c0,.06.03.11.08.14l6.58,4.23c.08.05.18.03.23-.05.05-.08.03-.18-.05-.23l-6.5-4.18.2-31.59c0-.09-.07-.17-.16-.17h0Z"/>
+<path class="c3" d="M29.08,50.2h0l-7.69-.4c-.05,0-.1-.03-.13-.08L1.19,18.56c-.05-.08-.03-.18.05-.23.08-.05.18-.03.23.05l20.01,31.1,7.61.4c.09,0,.16.08.16.17,0,.09-.08.16-.16.16Z"/>
+<path class="c3" d="M87.89,50.2h0l7.69-.4c.05,0,.1-.03.13-.08l20.06-31.17c.05-.08.03-.18-.05-.23-.08-.05-.18-.03-.23.05l-20.01,31.1-7.61.4c-.09,0-.16.08-.16.17,0,.09.08.16.16.16Z"/>
+<path class="c3" d="M75.98,130.5c.09,0,.16-.07.16-.16l.2-31.68c0-.06-.03-.11-.08-.14l-6.58-4.23c-.08-.05-.18-.03-.23.05-.05.08-.03.18.05.23l6.5,4.18-.2,31.59c0,.09.07.17.16.17h0Z"/>
+<path class="c3" d="M40.18,130.5c-.09,0-.16-.07-.16-.16l-.2-31.68c0-.06.03-.11.08-.14l6.58-4.23c.08-.05.18-.03.23.05.05.08.03.18-.05.23l-6.5,4.18.2,31.59c0,.09-.07.17-.16.17h0Z"/>
+<path class="c3" d="M29.08,83.75h0l-7.69.4c-.05,0-.1.03-.13.08L1.19,115.4c-.05.08-.03.18.05.23.08.05.18.03.23-.05l20.01-31.1,7.61-.4c.09,0,.16-.08.16-.17,0-.09-.08-.16-.16-.16Z"/>
+<path class="c3" d="M87.23,83.75h0s7.69.4,7.69.4c.05,0,.1.03.13.08l20.06,31.17c.05.08.03.18-.05.23-.08.05-.18.03-.23-.05l-20.01-31.1-7.61-.4c-.09,0-.16-.08-.16-.17,0-.09.08-.16.16-.16Z"/>
+</g>
+<path class="c3" d="M29.08,50.43c0-.24.13-.45.33-.57l28.5-16.45c.2-.12.45-.12.66,0l28.5,16.45c.2.12.33.33.33.57v32.91c0,.24-.13.45-.33.57l-28.5,16.45c-.2.12-.45.12-.66,0l-28.5-16.45c-.2-.12-.33-.33-.33-.57v-32.91Z"/>
+<path class="c3" d="M76.64,66.21l-18.17,8.76c-.17.08-.31.08-.48,0l-18.16-8.88M39.84,79.97v-20.55c0-.22.12-.42.3-.53l17.79-10.27c.19-.11.42-.11.61,0l17.79,10.27c.19.11.3.31.3.53v20.55"/>
+<path class="c1" d="M58.24,133.78c-.41,0-.81-.11-1.16-.31L1.16,101.18c-.71-.41-1.16-1.18-1.16-2.01V34.6c0-.82.44-1.59,1.16-2.01L57.08.3c.7-.41,1.61-.41,2.32,0l55.92,32.29c.71.41,1.16,1.18,1.16,2.01v64.58c0,.83-.44,1.59-1.16,2.01l-55.92,32.29c-.35.2-.75.31-1.16.31ZM58.24,1.99c-.06,0-.11.01-.16.04L2.16,34.32c-.1.06-.16.16-.16.27v64.58c0,.11.06.22.16.27l55.92,32.29c.1.06.22.06.32,0l55.92-32.29c.1-.06.16-.16.16-.27V34.6c0-.11-.06-.22-.16-.27L58.4,2.04s-.1-.04-.16-.04Z"/>
+</g></svg>`
+
 /**
  * Samples pixel positions from an SVG to use as particle target formation.
- * Logo is rendered at exactly 350px wide, positioned just above the CTA text.
+ * Parameters match the standalone.html version exactly for visual parity.
  * Falls back to a DOM canvas if OffscreenCanvas is unavailable (Safari < 16.4).
  */
 export async function sampleLogoPositions(svgUrl, particleCount, W, H) {
-  const CANVAS_SIZE = 1024  // max resolution for sharpest particle definition
-  const LOGO_WIDTH  = 350   // fixed pixel width in world/screen space
+  const SZ         = 768    // canvas resolution — matches standalone.html
+  const vW         = W * 2  // actual viewport width
+  // Responsive: max 350px with 24px side margins on mobile
+  const LOGO_WIDTH = Math.min(350, vW - 48)
 
   try {
-    // 1. Fetch SVG source text
-    const response = await fetch(svgUrl, { mode: 'cors' })
-    if (!response.ok) throw new Error(`Failed to fetch SVG: ${response.status}`)
-    const svgText = await response.text()
+    // 1. Try to fetch the live SVG; fall back to inline copy on any error
+    let svgSource = LOGO_SVG_FALLBACK
+    try {
+      const res = await fetch(svgUrl, { mode: 'cors' })
+      if (res.ok) {
+        const raw = await res.text()
+        svgSource = raw
+          .replace(/<svg/, '<svg style="background:#000"')
+          .replace(/fill\s*:\s*[^;}"]+/g,        'fill:white')
+          .replace(/stroke\s*:\s*[^;}"]+/g,       'stroke:white')
+          .replace(/stroke-width\s*:\s*[^;}"]+/g, 'stroke-width:3px')
+          .replace(/stroke-width="[^"]*"/g,        'stroke-width="3"')
+          .replace(/fill="(?!none)[^"]*"/g,        'fill="white"')
+          .replace(/stroke="(?!none)[^"]*"/g,      'stroke="white"')
+      }
+    } catch (_) { /* use fallback */ }
 
-    // 2. Inject white fill/stroke so all paths render white on black
-    const coloredSvg = svgText
-      .replace(/<svg/, '<svg style="background:#000"')
-      .replace(/fill\s*:\s*[^;}"]+/g, 'fill:white')
-      .replace(/stroke\s*:\s*[^;}"]+/g, 'stroke:white')
-      .replace(/stroke-width\s*:\s*[^;}"]+/g, 'stroke-width:1.5px')
-      .replace(/stroke-width="[^"]*"/g, 'stroke-width="1.5"')
-      .replace(/fill="(?!none)[^"]*"/g, 'fill="white"')
-      .replace(/stroke="(?!none)[^"]*"/g, 'stroke="white"')
-
-    const blob    = new Blob([coloredSvg], { type: 'image/svg+xml' })
+    // 2. Create canvas (with Safari fallback)
+    const blob    = new Blob([svgSource], { type: 'image/svg+xml' })
     const blobUrl = URL.createObjectURL(blob)
 
-    // 3. Create canvas (with Safari fallback)
     let canvas, ctx
     if (typeof OffscreenCanvas !== 'undefined') {
-      canvas = new OffscreenCanvas(CANVAS_SIZE, CANVAS_SIZE)
+      canvas = new OffscreenCanvas(SZ, SZ)
       ctx    = canvas.getContext('2d')
     } else {
       canvas = document.createElement('canvas')
-      canvas.width  = CANVAS_SIZE
-      canvas.height = CANVAS_SIZE
-      canvas.style.cssText = 'position:absolute;left:-9999px;top:-9999px;visibility:hidden'
+      canvas.width = canvas.height = SZ
+      canvas.style.cssText = 'position:absolute;left:-9999px;visibility:hidden'
       document.body.appendChild(canvas)
       ctx = canvas.getContext('2d')
     }
 
-    // 4. Draw SVG onto canvas
+    // 3. Draw SVG onto canvas
     await new Promise((resolve, reject) => {
       const img = new Image()
-      img.crossOrigin = 'anonymous'
       img.onload = () => {
         ctx.fillStyle = '#000'
-        ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE)
-        ctx.drawImage(img, 0, 0, CANVAS_SIZE, CANVAS_SIZE)
+        ctx.fillRect(0, 0, SZ, SZ)
+        ctx.drawImage(img, 0, 0, SZ, SZ)
         resolve()
       }
       img.onerror = reject
@@ -59,61 +86,48 @@ export async function sampleLogoPositions(svgUrl, particleCount, W, H) {
     })
 
     URL.revokeObjectURL(blobUrl)
+    if (canvas.parentNode) canvas.parentNode.removeChild(canvas)
 
-    // 5. Read pixel data
-    const imageData = ctx.getImageData(0, 0, CANVAS_SIZE, CANVAS_SIZE)
-    const pixels    = imageData.data
-
-    // 6. Collect bright pixel positions — sample every pixel for maximum fidelity
-    const candidates = []
-    const THRESHOLD  = 28
-
-    for (let y = 0; y < CANVAS_SIZE; y++) {
-      for (let x = 0; x < CANVAS_SIZE; x++) {
-        const idx = (y * CANVAS_SIZE + x) * 4
-        const brightness = Math.max(pixels[idx], pixels[idx + 1], pixels[idx + 2])
-        if (brightness > THRESHOLD) {
-          candidates.push({ x, y, brightness })
-        }
+    // 4. Collect every bright pixel — maximum candidate pool for Fisher-Yates
+    const px     = ctx.getImageData(0, 0, SZ, SZ).data
+    const cands  = []
+    for (let y = 0; y < SZ; y++) {
+      for (let x = 0; x < SZ; x++) {
+        const ii = (y * SZ + x) * 4
+        if (Math.max(px[ii], px[ii + 1], px[ii + 2]) > 28) cands.push({ x, y })
       }
     }
 
-    if (canvas.parentNode) canvas.parentNode.removeChild(canvas)
-
-    if (candidates.length < 50) {
-      console.warn('[logoSampler] Too few bright pixels found:', candidates.length)
+    if (cands.length < 50) {
+      console.warn('[logoSampler] Too few bright pixels:', cands.length)
       return null
     }
 
-    // 7. Fisher-Yates shuffle for even spatial distribution
-    for (let i = candidates.length - 1; i > 0; i--) {
+    // 5. Fisher-Yates shuffle — evenly distributes particles across the full logo
+    for (let i = cands.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1))
-      const tmp = candidates[i]; candidates[i] = candidates[j]; candidates[j] = tmp
+      const tmp = cands[i]; cands[i] = cands[j]; cands[j] = tmp
     }
-    const sampled = candidates.slice(0, particleCount)
+    const sampled = cands.slice(0, particleCount)
 
-    // 8. Compute scale — SVG letterboxes horizontally on the square canvas.
-    // contentW is the actual pixel width of the SVG content on the canvas.
-    const svgAR    = SVG_W / SVG_H              // 0.871 (portrait)
-    const contentW = CANVAS_SIZE * svgAR        // pixels of actual SVG content
-    const xOffset  = (CANVAS_SIZE - contentW) / 2  // left margin of letterbox
+    // 6. Scale: SVG is portrait (116.48×133.78) — letterboxes horizontally on square canvas
+    const svgAR   = SVG_W / SVG_H               // 0.871
+    const contentW = SZ * svgAR                 // canvas px the SVG content occupies
+    const xOffset  = (SZ - contentW) / 2        // horizontal letterbox margin
+    const sx = LOGO_WIDTH / contentW            // world px per canvas px
+    const sy = sx
 
-    const sx = LOGO_WIDTH / contentW           // scale to reach 350px world width
-    const sy = sx                              // uniform scale
-
-    // 9. Y offset: position logo centre at 35svh from viewport top
-    // World Y = 0 is viewport centre; positive = up.
-    // 35svh from top = 15% of vH above centre = H * 0.30
+    // Y offset: logo centre at 35svh from viewport top (= H*0.30 above world centre)
     const yOff = H * 0.30
 
-    // 10. Logo-specific colour palette (#00d4ff family)
+    // 7. Logo-specific colour palette (#00d4ff family)
     const logoPalette = [
-      [0.00, 0.83, 1.00],  // #00D4FF
-      [0.00, 0.75, 0.96],  // #00BFEF
-      [0.00, 0.65, 0.88],  // #00A6E0
-      [0.10, 0.88, 1.00],  // #1AE0FF
-      [0.00, 0.55, 0.78],  // #008CC7
-      [0.18, 0.92, 1.00],  // #2EEBFF
+      [0.00, 0.83, 1.00],
+      [0.00, 0.75, 0.96],
+      [0.00, 0.65, 0.88],
+      [0.10, 0.88, 1.00],
+      [0.00, 0.55, 0.78],
+      [0.18, 0.92, 1.00],
     ]
 
     const positions = new Float32Array(particleCount * 3)
@@ -124,13 +138,12 @@ export async function sampleLogoPositions(svgUrl, particleCount, W, H) {
 
     for (let i = 0; i < particleCount; i++) {
       if (i < sampled.length) {
-        const { x, y, brightness } = sampled[i]
+        const { x, y } = sampled[i]
         positions[i*3]   = (x - xOffset - contentW / 2) * sx
-        positions[i*3+1] = -(y - CANVAS_SIZE / 2) * sy + yOff
+        positions[i*3+1] = -(y - SZ / 2) * sy + yOff
         positions[i*3+2] = (Math.random() - 0.5) * 8
         alphas[i]        = 0.88 + Math.random() * 0.12
       } else {
-        // Surplus particles park far behind
         positions[i*3]   = (Math.random() - 0.5) * W * 2.6
         positions[i*3+1] = (Math.random() - 0.5) * H * 2.6
         positions[i*3+2] = -400 - Math.random() * 200
@@ -141,7 +154,6 @@ export async function sampleLogoPositions(svgUrl, particleCount, W, H) {
       colors[i*3]   = r
       colors[i*3+1] = g
       colors[i*3+2] = b
-
       sizes[i]  = 2.5 + Math.random() * 2.5
       phases[i] = Math.random() * Math.PI * 2
     }

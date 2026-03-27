@@ -57,6 +57,9 @@ let explosionLevel = 0
 // Logo fade state
 let logoFade = { value: 0 }
 
+// Breath oscillation amplitude (matches standalone.html steady-state value)
+let breathAmp = 0
+
 // CTA phase state
 let ctaActive = false
 let ctaPhase  = 0   // 0=idle, 1=scatter, 2=converge, 3=locked
@@ -123,7 +126,8 @@ export function initParticleSystem(canvas, lenisInstance) {
       uTime:       { value: 0 },
       uPixelRatio: { value: Math.min(window.devicePixelRatio, 2) },
       uExp:        { value: 0 },
-      uLogoLock:   { value: 0 }
+      uLogoLock:   { value: 0 },
+      uBreath:     { value: 0 }
     },
     transparent:  true,
     depthWrite:   false,
@@ -193,6 +197,11 @@ function tick() {
   explosionLevel *= 0.93
   material.uniforms.uExp.value  = explosionLevel
   material.uniforms.uTime.value = elapsed
+
+  // Breath: ramp up to 18 during normal sections, suppress during CTA logo lock
+  const breathTarget = (ctaActive && ctaPhase >= 2) ? 0 : 18
+  breathAmp += (breathTarget - breathAmp) * 0.025
+  material.uniforms.uBreath.value = breathAmp
 
   // Animate uLogoLock uniform
   const lockTarget = (ctaActive && ctaPhase >= 3) ? 1.0 : 0.0

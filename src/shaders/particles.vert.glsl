@@ -1,35 +1,36 @@
 attribute float aSize;
-attribute vec3 aColor;
+attribute vec3  aColor;
 attribute float aPhase;
 attribute float aAlpha;
 
 uniform float uTime;
 uniform float uPixelRatio;
-uniform float uExplosion;
+uniform float uExp;
+uniform float uBreath;
 
-varying vec3 vColor;
+varying vec3  vColor;
 varying float vAlpha;
-varying float vDist;
+varying float vExpV;
 
 void main() {
   vColor = aColor;
+  vExpV  = uExp;
 
-  // Shimmer: subtle oscillation per particle
-  float shimmer = 0.8 + 0.2 * sin(uTime * 1.8 + aPhase);
-  // Pulse during explosion
-  float explosionPulse = 1.0 + uExplosion * 0.5;
+  // Per-particle breath oscillation — makes the formation feel alive
+  float bx = sin(uTime * 0.55 + aPhase)        * uBreath * 0.50;
+  float by = cos(uTime * 0.42 + aPhase * 1.31) * uBreath;
+  float bz = sin(uTime * 0.28 + aPhase * 2.13) * uBreath * 0.30;
 
-  vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+  float shimFreq = 1.6 + 0.6 * fract(aPhase * 0.159);
+  float shimmer  = 0.80 + 0.20 * sin(uTime * shimFreq + aPhase);
+  float ep       = 1.0 + uExp * 0.8;
 
-  // Point size: scale with pixel ratio and distance
-  float size = aSize * shimmer * explosionPulse * uPixelRatio;
-  gl_PointSize = size * (300.0 / max(-mvPosition.z, 0.1));
-  gl_PointSize = clamp(gl_PointSize, 1.0, 32.0);
+  vec3 p = position + vec3(bx, by, bz);
+  vec4 mvPosition = modelViewMatrix * vec4(p, 1.0);
 
-  gl_Position = projectionMatrix * mvPosition;
+  float sz = aSize * shimmer * ep * uPixelRatio;
+  gl_PointSize = clamp(sz * (300.0 / max(-mvPosition.z, 0.1)), 1.0, 36.0);
+  gl_Position  = projectionMatrix * mvPosition;
 
-  // Alpha based on depth (particles far back fade out)
-  float depthFade = smoothstep(-600.0, -100.0, mvPosition.z);
-  vAlpha = aAlpha * depthFade;
-  vDist = -mvPosition.z;
+  vAlpha = aAlpha;
 }
