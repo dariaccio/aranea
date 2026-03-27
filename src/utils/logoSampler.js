@@ -1,26 +1,24 @@
 /**
- * Samples stroke-edge pixels from the Aranea SVG to build a particle formation.
+ * Samples pixels from the Aranea SVG to build a particle formation.
  *
- * Rendering strategy (matches local standalone.html behaviour):
- *   - SVG is drawn onto a transparent OffscreenCanvas at fixed 1024 × 1024 px.
- *   - ALL fills are stripped → only stroke outlines are rendered.
- *   - Pixels are accepted only when alpha > ALPHA_THRESHOLD (200).
- *     This skips every anti-aliased semi-transparent fringe pixel and every
- *     filled interior region, giving a sharp hollow-center logo.
- *   - Fisher-Yates shuffle before slicing ensures even spatial coverage.
- *   - Scaling is viewBox-aware: the portrait SVG (116.48 × 133.78) letterboxes
- *     horizontally inside the square canvas, so xOffset is subtracted to
- *     centre the world-space result correctly.
+ * Rendering strategy:
+ *   - All colors forced to white, transparent background (no black fill).
+ *   - Pixels accepted only when alpha > 200 — this skips anti-aliased fringe
+ *     pixels (alpha 20-150) while keeping solid stroke/fill pixels (alpha 255).
+ *   - Fills are KEPT (not stripped) so the thick hexagonal outer border ring,
+ *     which is a filled compound path, contributes particles correctly.
+ *   - Only fill:none inner paths (.c3) have no fill area — their interiors
+ *     remain transparent and are not sampled, giving the hollow center.
+ *   - Fisher-Yates shuffle ensures even spatial coverage before slicing.
  */
 
 const SVG_W = 116.48
 const SVG_H = 133.78
 
-// Inline fallback – used when the network request fails.
-// Fills are already set to none so only strokes contribute pixels.
+// Inline fallback — used when the network request fails.
 const FALLBACK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 116.48 133.78">
 <defs><style>
-  .c1{fill:none;stroke:white;stroke-width:3}
+  .c1{fill:white;stroke:white;stroke-width:3}
   .c2{fill:none}
   .c3{fill:none;stroke:white;stroke-miterlimit:10;stroke-width:3.5px}
   .c4{clip-path:url(#cp)}
@@ -42,70 +40,60 @@ const FALLBACK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 116.4
 <path class="c1" d="M58.24,133.78c-.41,0-.81-.11-1.16-.31L1.16,101.18c-.71-.41-1.16-1.18-1.16-2.01V34.6c0-.82.44-1.59,1.16-2.01L57.08.3c.7-.41,1.61-.41,2.32,0l55.92,32.29c.71.41,1.16,1.18,1.16,2.01v64.58c0,.83-.44,1.59-1.16,2.01l-55.92,32.29c-.35.2-.75.31-1.16.31ZM58.24,1.99c-.06,0-.11.01-.16.04L2.16,34.32c-.1.06-.16.16-.16.27v64.58c0,.11.06.22.16.27l55.92,32.29c.1.06.22.06.32,0l55.92-32.29c.1-.06.16-.16.16-.27V34.6c0-.11-.06-.22-.16-.27L58.4,2.04s-.1-.04-.16-.04Z"/>
 </g></svg>`
 
-// ─── Prepare SVG source: strip all fills, keep strokes only ───────────────
-function prepareStrokeOnlySvg(raw) {
+// Make all colors white; keep fills intact (the outer border ring is a filled path)
+function prepareWhiteSvg(raw) {
   return raw
-    // Remove any background color on the root element
-    .replace(/(<svg[^>]*)\sstyle="[^"]*"/,  '$1')
-    .replace(/(<svg[^>]*)>/,                '$1>')
-    // CSS class rules: force fill:none everywhere
-    .replace(/fill\s*:\s*(?!none)[^;}"]+/g, 'fill:none')
-    // Inline fill attributes: force fill="none"
-    .replace(/fill="(?!none)[^"]*"/g,       'fill="none"')
-    // Keep strokes white
-    .replace(/stroke\s*:\s*[^;}"]+/g,       'stroke:white')
-    .replace(/stroke="(?!none)[^"]*"/g,     'stroke="white"')
-    // Keep stroke-width as-is (do not widen — preserves original proportions)
+    // Remove any background colour on the svg element itself
+    .replace(/(<svg\b[^>]*?)\s+style="[^"]*"/i, '$1')
+    // CSS class rules: convert fills to white (keep fill:none untouched)
+    .replace(/fill\s*:\s*(?!none)[^;}"]+/g,  'fill:white')
+    // CSS class rules: convert strokes to white
+    .replace(/stroke\s*:\s*[^;}"]+/g,        'stroke:white')
+    // Inline fill attributes: white (keep fill="none" untouched)
+    .replace(/fill="(?!none)[^"]*"/g,        'fill="white"')
+    // Inline stroke attributes: white
+    .replace(/stroke="(?!none)[^"]*"/g,      'stroke="white"')
 }
 
 export async function sampleLogoPositions(svgUrl, particleCount, W, H) {
-  // Canvas resolution: high but not DPR-scaled (sampling canvas, not display canvas)
-  const SZ             = 1024
-  const ALPHA_THRESHOLD = 200   // only fully-opaque stroke pixels; skips anti-aliased fringe
-  const vW             = W * 2
-  const LOGO_WIDTH     = Math.min(350, vW - 48)   // responsive: max 350px, 24px margins
+  const SZ              = 1024   // offscreen canvas resolution
+  const ALPHA_THRESHOLD = 200    // skips anti-aliased semi-transparent fringe pixels
+  const vW              = W * 2  // actual viewport width
+
+  // Responsive width: ~50% on mobile, max 350px on desktop
+  const LOGO_WIDTH = vW < 768
+    ? Math.round(vW * 0.50)
+    : Math.min(350, vW - 48)
 
   try {
-    // ── 1. Load SVG source ────────────────────────────────────────────────
-    let svgSource = prepareStrokeOnlySvg(FALLBACK_SVG)
-
+    // 1. Load SVG — fall back to inline copy on any network error
+    let svgSource = prepareWhiteSvg(FALLBACK_SVG)
     try {
-      // Wait for the full SVG text before proceeding
       const res = await fetch(svgUrl, { mode: 'cors' })
-      if (res.ok) {
-        const text = await res.text()
-        svgSource = prepareStrokeOnlySvg(text)
-      }
-    } catch (_) { /* network failed – use inline fallback */ }
+      if (res.ok) svgSource = prepareWhiteSvg(await res.text())
+    } catch (_) { /* use fallback */ }
 
-    // ── 2. Build Blob URL from prepared SVG ──────────────────────────────
+    // 2. Blob URL from prepared SVG
     const blob    = new Blob([svgSource], { type: 'image/svg+xml' })
     const blobUrl = URL.createObjectURL(blob)
 
-    // ── 3. Create offscreen canvas (transparent – NO background fill) ─────
+    // 3. Offscreen canvas — transparent background (NO fillRect)
     let canvas, ctx
     if (typeof OffscreenCanvas !== 'undefined') {
       canvas = new OffscreenCanvas(SZ, SZ)
       ctx    = canvas.getContext('2d')
     } else {
-      canvas        = document.createElement('canvas')
-      canvas.width  = SZ
-      canvas.height = SZ
+      canvas = document.createElement('canvas')
+      canvas.width = canvas.height = SZ
       canvas.style.cssText = 'position:absolute;left:-9999px;visibility:hidden'
       document.body.appendChild(canvas)
       ctx = canvas.getContext('2d')
     }
 
-    // ── 4. Wait for the SVG image to be fully loaded, then draw ──────────
+    // 4. Wait for full SVG load, then draw — no background, alpha channel intact
     await new Promise((resolve, reject) => {
       const img = new Image()
-      img.onload = () => {
-        // Transparent background – do NOT fillRect with any colour.
-        // The browser renders the SVG with its natural alpha channel intact.
-        ctx.clearRect(0, 0, SZ, SZ)
-        ctx.drawImage(img, 0, 0, SZ, SZ)
-        resolve()
-      }
+      img.onload = () => { ctx.clearRect(0, 0, SZ, SZ); ctx.drawImage(img, 0, 0, SZ, SZ); resolve() }
       img.onerror = reject
       img.src = blobUrl
     })
@@ -113,49 +101,44 @@ export async function sampleLogoPositions(svgUrl, particleCount, W, H) {
     URL.revokeObjectURL(blobUrl)
     if (canvas.parentNode) canvas.parentNode.removeChild(canvas)
 
-    // ── 5. Collect only fully-opaque stroke pixels ─────────────────────
-    // Reading the alpha channel avoids sampling:
-    //   • anti-aliased semi-transparent fringe pixels
-    //   • any filled interior regions (all fills were stripped in step 1)
-    const pixels  = ctx.getImageData(0, 0, SZ, SZ).data
-    const cands   = []
-
+    // 5. Collect fully-opaque pixels only (alpha > ALPHA_THRESHOLD)
+    //    — skips anti-aliased fringe AND the interior of fill:none paths
+    const pixels = ctx.getImageData(0, 0, SZ, SZ).data
+    const cands  = []
     for (let y = 0; y < SZ; y++) {
       for (let x = 0; x < SZ; x++) {
-        const a = pixels[(y * SZ + x) * 4 + 3]   // alpha channel
-        if (a > ALPHA_THRESHOLD) cands.push({ x, y })
+        if (pixels[(y * SZ + x) * 4 + 3] > ALPHA_THRESHOLD) cands.push({ x, y })
       }
     }
 
     if (cands.length < 50) {
-      console.warn('[logoSampler] Too few opaque pixels found:', cands.length)
+      console.warn('[logoSampler] Too few opaque pixels:', cands.length)
       return null
     }
 
-    // ── 6. Fisher-Yates shuffle → even spatial distribution ──────────────
+    // 6. Fisher-Yates shuffle — even spatial coverage across the full logo
     for (let i = cands.length - 1; i > 0; i--) {
-      const j   = Math.floor(Math.random() * (i + 1))
+      const j = Math.floor(Math.random() * (i + 1))
       const tmp = cands[i]; cands[i] = cands[j]; cands[j] = tmp
     }
     const sampled = cands.slice(0, particleCount)
 
-    // ── 7. Viewbox-aware scaling ──────────────────────────────────────────
-    // The portrait SVG (116.48 × 133.78) letterboxes horizontally inside the
-    // square canvas: content fills the full height and is centred with equal
-    // left/right margins.
-    const svgAR   = SVG_W / SVG_H              // ≈ 0.871
-    const contentW = SZ * svgAR               // actual pixel width of SVG content
-    const xOffset  = (SZ - contentW) / 2      // left letterbox margin
+    // 7. Viewbox-aware scaling
+    //    Portrait SVG (116.48 × 133.78) letterboxes horizontally in the square canvas:
+    //    content fills full height, centred left-right with equal margins.
+    const svgAR   = SVG_W / SVG_H           // ≈ 0.871
+    const contentW = SZ * svgAR             // canvas px occupied by SVG content
+    const xOffset  = (SZ - contentW) / 2   // left letterbox margin
 
-    const sx = LOGO_WIDTH / contentW          // uniform scale → LOGO_WIDTH in world px
+    const sx = LOGO_WIDTH / contentW        // world px per canvas px (uniform scale)
     const sy = sx
 
-    // Logo centre sits at 35 svh from viewport top (= H × 0.30 above world centre)
+    // Logo centre at 35 svh from viewport top = H × 0.30 above world centre
     const yOff = H * 0.30
 
-    // ── 8. Build particle buffers ─────────────────────────────────────────
+    // 8. Build particle buffers
     const logoPalette = [
-      [0.00, 0.83, 1.00],   // #00d4ff
+      [0.00, 0.83, 1.00],
       [0.00, 0.75, 0.96],
       [0.00, 0.65, 0.88],
       [0.10, 0.88, 1.00],
@@ -177,22 +160,18 @@ export async function sampleLogoPositions(svgUrl, particleCount, W, H) {
         positions[i*3+2] = (Math.random() - 0.5) * 8
         alphas[i]        = 0.88 + Math.random() * 0.12
       } else {
-        // Surplus particles park far behind the formation
         positions[i*3]   = (Math.random() - 0.5) * W * 2.6
         positions[i*3+1] = (Math.random() - 0.5) * H * 2.6
         positions[i*3+2] = -400 - Math.random() * 200
         alphas[i]        = 0.02
       }
-
       const [r, g, b] = logoPalette[Math.floor(Math.random() * logoPalette.length)]
-      colors[i*3]   = r
-      colors[i*3+1] = g
-      colors[i*3+2] = b
+      colors[i*3] = r; colors[i*3+1] = g; colors[i*3+2] = b
       sizes[i]  = 2.5 + Math.random() * 2.5
       phases[i] = Math.random() * Math.PI * 2
     }
 
-    console.log(`[logoSampler] ${cands.length} opaque pixels → ${sampled.length} particles`)
+    console.log(`[logoSampler] ${cands.length} opaque px → ${sampled.length} particles, logo ${LOGO_WIDTH}px wide`)
     return { pos: positions, col: colors, siz: sizes, pha: phases, alp: alphas }
 
   } catch (err) {

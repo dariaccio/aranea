@@ -18,8 +18,10 @@ export function useLenis() {
       smoothWheel: true,
       wheelMultiplier: 1.0,
       touchMultiplier: 2.2,
-      // Ensure wheel works even if particle loop has not started
-      autoRaf: true
+      // Disable Lenis's own RAF loop, use particle system's tick
+      autoRaf: false,
+      // Show scrollbar
+      scrollbar: true
     })
 
     lenisRef.current  = lenis
