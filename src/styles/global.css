@@ -29,6 +29,21 @@ body {
   body { cursor: auto; }
 }
 
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border-glow);
+}
+
 #root {
   position: relative;
   isolation: isolate;
@@ -116,7 +131,8 @@ body {
 /* Scrollbar */
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: var(--color-bg); }
-::-webkit-scrollbar-thumb { background: var(--color-border-glow); border-radius: 2px; }
+::-webkit-scrollbar-thumb { background: rgba(0,212,255,0.35); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(0,212,255,0.6); }
 
 /* Selection */
 ::selection {
@@ -150,7 +166,7 @@ body {
 .btn-primary:hover {
   background: var(--color-accent-2);
   transform: translateY(-2px);
-  box-shadow: 0 8px 32px rgba(123, 47, 190, 0.45);
+  box-shadow: 0 8px 32px rgba(0, 212, 255, 0.35);
 }
 
 .btn-secondary {

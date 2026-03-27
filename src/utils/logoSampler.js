@@ -8,7 +8,7 @@ const SVG_H = 133.78
  * Falls back to a DOM canvas if OffscreenCanvas is unavailable (Safari < 16.4).
  */
 export async function sampleLogoPositions(svgUrl, particleCount, W, H) {
-  const CANVAS_SIZE = 768   // higher resolution for better particle definition
+  const CANVAS_SIZE = 1024  // max resolution for sharpest particle definition
   const LOGO_WIDTH  = 350   // fixed pixel width in world/screen space
 
   try {
@@ -22,8 +22,8 @@ export async function sampleLogoPositions(svgUrl, particleCount, W, H) {
       .replace(/<svg/, '<svg style="background:#000"')
       .replace(/fill\s*:\s*[^;}"]+/g, 'fill:white')
       .replace(/stroke\s*:\s*[^;}"]+/g, 'stroke:white')
-      .replace(/stroke-width\s*:\s*[^;}"]+/g, 'stroke-width:3px')
-      .replace(/stroke-width="[^"]*"/g, 'stroke-width="3"')
+      .replace(/stroke-width\s*:\s*[^;}"]+/g, 'stroke-width:1.5px')
+      .replace(/stroke-width="[^"]*"/g, 'stroke-width="1.5"')
       .replace(/fill="(?!none)[^"]*"/g, 'fill="white"')
       .replace(/stroke="(?!none)[^"]*"/g, 'stroke="white"')
 
@@ -64,12 +64,12 @@ export async function sampleLogoPositions(svgUrl, particleCount, W, H) {
     const imageData = ctx.getImageData(0, 0, CANVAS_SIZE, CANVAS_SIZE)
     const pixels    = imageData.data
 
-    // 6. Collect bright pixel positions (every 2nd pixel for performance)
+    // 6. Collect bright pixel positions — sample every pixel for maximum fidelity
     const candidates = []
-    const THRESHOLD  = 30
+    const THRESHOLD  = 28
 
-    for (let y = 0; y < CANVAS_SIZE; y += 2) {
-      for (let x = 0; x < CANVAS_SIZE; x += 2) {
+    for (let y = 0; y < CANVAS_SIZE; y++) {
+      for (let x = 0; x < CANVAS_SIZE; x++) {
         const idx = (y * CANVAS_SIZE + x) * 4
         const brightness = Math.max(pixels[idx], pixels[idx + 1], pixels[idx + 2])
         if (brightness > THRESHOLD) {

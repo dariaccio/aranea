@@ -14,9 +14,9 @@
   --color-particle-deep:   #1e40af;
 
   /* Brand accent */
-  --color-accent:      #7b2fbe;
-  --color-accent-2:    #9b4fde;
-  --color-accent-glow: rgba(123, 47, 190, 0.25);
+  --color-accent:      #00d4ff;
+  --color-accent-2:    #00b8e0;
+  --color-accent-glow: rgba(0, 212, 255, 0.25);
 
   /* Text */
   --color-text-primary:   #f0f4f8;
@@ -89,8 +89,8 @@
   --duration-xslow:   1100ms;
 
   /* Z-index */
-  --z-canvas:  9999; /* Particle layer above everything */
+  --z-canvas:  9999;
   --z-content: 10;
   --z-nav:     100;
-  --z-cursor:  10000; /* Cursor remains above particles */
+  --z-cursor:  200;
 }
