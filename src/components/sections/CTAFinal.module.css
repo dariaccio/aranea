@@ -1,7 +1,7 @@
 .cta {
   min-height: 100svh;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   text-align: center;
   overflow: hidden;
@@ -18,44 +18,41 @@
   height: 100%;
   object-fit: cover;
   object-position: center;
-  opacity: 0.22;
-  filter: saturate(0.5) brightness(0.5);
+  opacity: 0.15;
+  filter: saturate(0.4) brightness(0.5);
 }
 
 .overlay {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(ellipse 80% 60% at 50% 50%, rgba(123,47,190,0.12), transparent),
-    linear-gradient(180deg, var(--color-bg) 0%, rgba(6,8,13,0.4) 40%, rgba(6,8,13,0.4) 60%, var(--color-bg) 100%);
+    radial-gradient(ellipse 80% 60% at 50% 50%, rgba(0,212,255,0.06), transparent),
+    linear-gradient(180deg, var(--color-bg) 0%, rgba(6,8,16,0.3) 40%, rgba(6,8,16,0.3) 60%, var(--color-bg) 100%);
 }
 
-.content {
+.inner {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding-block: var(--space-32);
-  gap: 0;
+  padding: 0 clamp(1.5rem, 5vw, 5rem) 3rem;
+  width: 100%;
 }
 
-.logoMark {
-  margin-bottom: var(--space-10);
-  opacity: 0.55;
-}
-
-.logoImg {
-  height: 60px;
-  width: auto;
-  filter: brightness(0) invert(1);
+/* Reserves vertical space for the particle logo above the text.
+   35svh = logo centre from viewport top.
+   231px = logo half-height (201px at 350px wide) + 30px gap. */
+.logoSpacer {
+  height: calc(35svh + 231px);
+  flex-shrink: 0;
 }
 
 .headline {
-  font-size: clamp(2rem, 5vw + 1rem, 4.5rem);
-  font-weight: var(--font-weight-bold);
+  font-size: clamp(1.6rem, 3.5vw + 0.4rem, 3.4rem);
+  font-weight: 700;
   line-height: 1.1;
   letter-spacing: -0.03em;
   color: var(--color-text-primary);
-  margin-block: var(--space-5) var(--space-8);
+  margin-block: 1rem 1.2rem;
   max-width: 800px;
 }
 
@@ -64,65 +61,37 @@
 }
 
 .body {
-  font-size: clamp(0.95rem, 1.2vw + 0.2rem, 1.15rem);
-  font-weight: var(--font-weight-light);
-  line-height: 1.8;
+  font-size: clamp(0.9rem, 1vw + 0.2rem, 1.05rem);
+  font-weight: 300;
+  line-height: 1.82;
   color: var(--color-text-secondary);
   max-width: 640px;
-  margin-bottom: var(--space-12);
+  margin-bottom: 1.5rem;
 }
 
 .actions {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: var(--space-4);
-  margin-bottom: var(--space-24);
+  gap: 1rem;
+  margin-bottom: 2rem;
 }
 
-/* Footer strip */
 .footer {
   display: flex;
   align-items: center;
-  gap: var(--space-5);
-  padding-top: var(--space-8);
+  padding-top: 2rem;
   border-top: 1px solid var(--color-border);
-  flex-wrap: wrap;
   justify-content: center;
 }
 
-.footerLogo {
-  font-size: var(--text-sm);
-  font-weight: var(--font-weight-semi);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+.footerTag {
+  font-size: 0.72rem;
   color: var(--color-text-muted);
-}
-
-.footerSep {
-  width: 1px;
-  height: 14px;
-  background: var(--color-border);
-}
-
-.footerTagline {
-  font-size: var(--text-xs);
-  font-weight: var(--font-weight-regular);
   letter-spacing: 0.08em;
-  color: var(--color-text-muted);
-  font-style: italic;
+  font-style: normal;
 }
-
-.footerLink {
-  font-size: var(--text-xs);
-  color: var(--color-text-accent);
-  text-decoration: none;
-  transition: opacity var(--duration-fast);
-}
-
-.footerLink:hover { opacity: 0.7; }
 
 @media (max-width: 640px) {
-  .footerSep { display: none; }
-  .footer    { flex-direction: column; gap: var(--space-3); }
+  .actions { flex-direction: column; align-items: center; }
 }
