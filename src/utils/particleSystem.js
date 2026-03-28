@@ -21,7 +21,7 @@ import { sampleLogoPositions } from './logoSampler.js'
 gsap.registerPlugin(ScrollTrigger)
 
 // Logo-lock spring constants
-const K_LOGO = 0.20
+const K_LOGO = 0.32
 const D_LOGO = 0.83
 
 // ─── Module state ──────────────────────────────────────────────────────────
@@ -217,8 +217,8 @@ function updatePhysics(delta) {
 
   if (ctaActive) {
     // Smoothly lerp toward target K/D for each CTA phase (~0.9s ramp at 60fps)
-    const tgtK = [0, 0.010, 0.048, K_LOGO * 1.4][ctaPhase] || K_LOGO
-    const tgtD = [0, 0.95,  0.89,  0.91        ][ctaPhase] || D_LOGO
+    const tgtK = [0, 0.010, 0.048, K_LOGO * 1.6][ctaPhase] || K_LOGO
+    const tgtD = [0, 0.95,  0.89,  0.88        ][ctaPhase] || D_LOGO
     ctaK += (tgtK - ctaK) * 0.018
     ctaD += (tgtD - ctaD) * 0.018
     K = ctaK; D = ctaD
@@ -234,6 +234,23 @@ function updatePhysics(delta) {
       positions[idx]  += velocities[idx]
     }
   }
+  // Snap-to-rest: pin particles that are within 0.5 world units of their target
+  if (ctaActive && ctaPhase >= 3) {
+    for (let i = 0; i < particleCount; i++) {
+      const i3 = i * 3
+      if (Math.abs(targets[i3]   - positions[i3])   < 0.5 &&
+          Math.abs(targets[i3+1] - positions[i3+1]) < 0.5 &&
+          Math.abs(targets[i3+2] - positions[i3+2]) < 0.5) {
+        velocities[i3]   = 0
+        velocities[i3+1] = 0
+        velocities[i3+2] = 0
+        positions[i3]   = targets[i3]
+        positions[i3+1] = targets[i3+1]
+        positions[i3+2] = targets[i3+2]
+      }
+    }
+  }
+
   geometry.attributes.position.needsUpdate = true
 }
 
@@ -310,6 +327,7 @@ export function enterCTA() {
   // Phase 3: strong spring locks formation
   clearTimeout(ctaTimer2)
   ctaTimer2 = setTimeout(() => {
+    velocities.fill(0)
     ctaPhase = 3
     const lf2 = logoFormation || generateFormation(0, particleCount, vW/2, vH/2)
     targets.set(lf2.pos)
