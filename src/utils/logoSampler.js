@@ -1,19 +1,25 @@
 /**
- * Analytical SVG path sampler — builds particle formations by tracing
- * every stroke path mathematically, with no canvas rasterization.
+ * Analytical SVG path sampler with clip-path support.
  *
  * Pipeline:
- *   tokenizePath(d)       -> flat array of { cmd, args[] }
- *   buildSegments(tokens) -> absolute-coordinate line/cubic segments
- *   samplePath(d, step)   -> { x, y } points at arc-length `step` intervals
- *   sampleLogoPositions() -> Float32Arrays (public API unchanged)
+ *   tokenizePath(d)          -> flat array of { cmd, args[] }
+ *   buildSegments(tokens)    -> absolute-coordinate line/cubic segments
+ *   samplePath(d, step)      -> { x, y } points at arc-length `step` intervals
+ *   buildClipPolygon(d)      -> polygon vertex array for point-in-polygon test
+ *   pointInPolygon(pt, poly) -> boolean
+ *   sampleLogoPositions()    -> Float32Arrays (public API unchanged)
  *
- * Handles: M m L l H h V v C c S s Z z
- * All paths in risorsa5ara.svg are covered by these commands.
+ * Clip handling:
+ *   Paths inside <g clip-path="..."> are filtered against the clip polygon
+ *   so no geometry escapes the outer hexagonal boundary.
+ *   Paths outside (inner hexagon, inner cube, outer ring) are unclipped.
  */
 
 const SVG_W = 116.48
 const SVG_H = 133.78
+
+// Estimated total stroke length across all paths (SVG units) for step calculation
+const APPROX_TOTAL_LENGTH = 1300
 
 // Argument counts per SVG path command
 const ARGS_PER_CMD = { M:2, L:2, H:1, V:1, C:6, S:4, Z:0 }
@@ -56,7 +62,6 @@ function tokenizePath(d) {
     const ch = chunks[i]
     if (/[MmZzLlHhVvCcSsQqTtAa]/.test(ch)) {
       currentCmd = ch
-      // Z/z has no args — emit immediately
       if (ch === 'Z' || ch === 'z') {
         tokens.push({ cmd: ch, args: [] })
       }
@@ -69,7 +74,6 @@ function tokenizePath(d) {
         args.push(parseFloat(chunks[i]))
       }
       tokens.push({ cmd: currentCmd, args })
-      // After M/m, implicit repeat is L/l
       if (currentCmd === 'M') currentCmd = 'L'
       else if (currentCmd === 'm') currentCmd = 'l'
     } else {
@@ -82,9 +86,9 @@ function tokenizePath(d) {
 // ---- Layer 2: Segment Builder --------------------------------------------
 function buildSegments(tokens) {
   const segments = []
-  let cx = 0, cy = 0   // current pen position
-  let sx = 0, sy = 0   // sub-path start (reset on M/m)
-  let prevCp2x = 0, prevCp2y = 0  // second control point of last C/S
+  let cx = 0, cy = 0
+  let sx = 0, sy = 0
+  let prevCp2x = 0, prevCp2y = 0
   let prevCmdWasCubic = false
 
   for (const { cmd, args } of tokens) {
@@ -184,7 +188,6 @@ function sampleLine(seg, step) {
 }
 
 function sampleCubic(seg, step) {
-  // Build a 200-point arc-length LUT at t-step 0.005
   const T_FINE = 0.005
   const lut = [{ arcLen: 0, x: seg.x0, y: seg.y0 }]
   let totalLen = 0
@@ -198,7 +201,6 @@ function sampleCubic(seg, step) {
     prevX = x; prevY = y
   }
 
-  // Emit points at uniform arc-length intervals
   const pts = []
   let nextDist = 0
   let lutIdx = 0
@@ -218,48 +220,128 @@ function sampleCubic(seg, step) {
   return pts
 }
 
-// ---- Layer 4: Full Path Sampler ------------------------------------------
 function samplePath(d, step) {
   const tokens   = tokenizePath(d)
   const segments = buildSegments(tokens)
   const points   = []
   for (const seg of segments) {
-    if (seg.type === 'line') {
-      points.push(...sampleLine(seg, step))
-    } else if (seg.type === 'cubic') {
-      points.push(...sampleCubic(seg, step))
-    }
+    if (seg.type === 'line')  points.push(...sampleLine(seg, step))
+    else if (seg.type === 'cubic') points.push(...sampleCubic(seg, step))
   }
   return points
+}
+
+// ---- Clip polygon support ------------------------------------------------
+
+// Build a polygon (vertex array) from an SVG path d string.
+// Uses segment endpoints — accurate enough for the hexagonal clip region.
+function buildClipPolygon(d) {
+  const tokens   = tokenizePath(d)
+  const segments = buildSegments(tokens)
+  if (segments.length === 0) return []
+  const verts = [{ x: segments[0].x0, y: segments[0].y0 }]
+  for (const seg of segments) {
+    const ex = seg.type === 'cubic' ? seg.x3 : seg.x1
+    const ey = seg.type === 'cubic' ? seg.y3 : seg.y1
+    verts.push({ x: ex, y: ey })
+  }
+  return verts
+}
+
+// Ray-casting point-in-polygon test (Jordan curve theorem).
+function pointInPolygon(pt, polygon) {
+  if (polygon.length < 3) return true
+  let inside = false
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].x, yi = polygon[i].y
+    const xj = polygon[j].x, yj = polygon[j].y
+    if (((yi > pt.y) !== (yj > pt.y)) &&
+        pt.x < (xj - xi) * (pt.y - yi) / (yj - yi) + xi) {
+      inside = !inside
+    }
+  }
+  return inside
+}
+
+// ---- SVG structural extraction -------------------------------------------
+
+// Returns the d-attribute of the path inside the first <clipPath> element.
+function extractClipD(svgSource) {
+  const clipSection = svgSource.match(/<clipPath\b[^>]*>([\s\S]*?)<\/clipPath>/i)
+  if (!clipSection) return null
+  const m = clipSection[1].match(/<path[^>]+\bd="([^"]+)"/)
+  return m ? m[1] : null
+}
+
+// Returns d-attributes from paths that are inside a clip-applying group
+// (i.e., a <g> element that has a clip-path="..." attribute).
+function extractClippedDStrings(svgSource) {
+  const groupMatch = svgSource.match(/<g\b[^>]*\bclip-path\s*=\s*"[^"]*"[^>]*>([\s\S]*?)<\/g>/i)
+  if (!groupMatch) return []
+  const result = []
+  const re = /<path[^>]+\bd="([^"]+)"/g
+  let m
+  while ((m = re.exec(groupMatch[1])) !== null) result.push(m[1])
+  return result
+}
+
+// Returns d-attributes from paths NOT inside a <clipPath> or clip-applying group.
+function extractUnclippedDStrings(svgSource) {
+  const cleaned = svgSource
+    // Remove <clipPath>...</clipPath> sections entirely
+    .replace(/<clipPath[\s\S]*?<\/clipPath>/gi, '')
+    // Remove the clip-applying group (but keep its closing </g> context)
+    .replace(/<g\b[^>]*\bclip-path\s*=\s*"[^"]*"[^>]*>[\s\S]*?<\/g>/i, '')
+  const result = []
+  const re = /<path[^>]+\bd="([^"]+)"/g
+  let m
+  while ((m = re.exec(cleaned)) !== null) result.push(m[1])
+  return result
 }
 
 // ---- Public API ----------------------------------------------------------
 export async function sampleLogoPositions(svgUrl, particleCount, W, H) {
   try {
-    // 1. Load SVG source — fall back to inline copy on any network error
+    // 1. Load SVG source
     let svgSource = FALLBACK_SVG
     try {
       const res = await fetch(svgUrl, { mode: 'cors' })
       if (res.ok) svgSource = await res.text()
     } catch (_) { /* use fallback */ }
 
-    // 2. Extract all d="..." attributes from path elements
-    const dStrings = []
-    const re = /<path[^>]+\bd="([^"]+)"/g
-    let m
-    while ((m = re.exec(svgSource)) !== null) dStrings.push(m[1])
+    // 2. Build clip polygon from <clipPath> path
+    const clipD = extractClipD(svgSource)
+    const clipPolygon = clipD ? buildClipPolygon(clipD) : null
 
-    if (dStrings.length === 0) {
+    // 3. Separate clipped paths from unclipped paths
+    const clippedDs   = extractClippedDStrings(svgSource)
+    const unclippedDs = extractUnclippedDStrings(svgSource)
+
+    if (clippedDs.length === 0 && unclippedDs.length === 0) {
       console.warn('[logoSampler] No path elements found in SVG')
       return null
     }
 
-    // 3. Sample all paths at adaptive density
-    const STEP_INIT = 0.8
-    let allPoints = dStrings.flatMap(d => samplePath(d, STEP_INIT))
-    // Re-sample at half step if too sparse to fill half the particle count
-    if (allPoints.length < particleCount * 0.5) {
-      allPoints = dStrings.flatMap(d => samplePath(d, STEP_INIT * 0.5))
+    // 4. Compute sampling step: target ~2x particleCount candidate points
+    const step = Math.max(0.15, APPROX_TOTAL_LENGTH / (particleCount * 2.2))
+
+    // 5. Sample clipped paths, filter by clip polygon
+    const allPoints = []
+
+    for (const d of clippedDs) {
+      const pts = samplePath(d, step)
+      if (clipPolygon) {
+        for (const p of pts) {
+          if (pointInPolygon(p, clipPolygon)) allPoints.push(p)
+        }
+      } else {
+        allPoints.push(...pts)
+      }
+    }
+
+    // 6. Sample unclipped paths (no filtering)
+    for (const d of unclippedDs) {
+      allPoints.push(...samplePath(d, step))
     }
 
     if (allPoints.length < 50) {
@@ -267,26 +349,24 @@ export async function sampleLogoPositions(svgUrl, particleCount, W, H) {
       return null
     }
 
-    // 4. Fisher-Yates shuffle — even spatial coverage before slicing
+    // 7. Fisher-Yates shuffle + slice
     for (let i = allPoints.length - 1; i > 0; i--) {
       const j = (Math.random() * (i + 1)) | 0
       const tmp = allPoints[i]; allPoints[i] = allPoints[j]; allPoints[j] = tmp
     }
     const sampled = allPoints.slice(0, particleCount)
 
-    // 5. World-space conversion
-    //    sx = LOGO_WIDTH / SVG_W  (algebraically equivalent to the old canvas approach)
-    //    One SVG unit maps to exactly LOGO_WIDTH / SVG_W world pixels.
-    const vW = W * 2  // actual viewport width (W is half-width from orthographic camera)
+    // 8. World-space conversion: sx = LOGO_WIDTH / SVG_W (world px per SVG unit)
+    const vW = W * 2
     const LOGO_WIDTH = vW < 768
       ? Math.round(vW * 0.50)
       : Math.min(350, vW - 48)
 
-    const sx = LOGO_WIDTH / SVG_W  // world px per SVG unit (uniform)
-    const sy = sx
-    const yOff = H * 0.30          // logo centre at 35svh from viewport top
+    const sx   = LOGO_WIDTH / SVG_W
+    const sy   = sx
+    const yOff = H * 0.30
 
-    // 6. Build particle buffers
+    // 9. Build particle buffers
     const logoPalette = [
       [0.00, 0.83, 1.00],
       [0.00, 0.75, 0.96],
@@ -305,13 +385,11 @@ export async function sampleLogoPositions(svgUrl, particleCount, W, H) {
     for (let i = 0; i < particleCount; i++) {
       if (i < sampled.length) {
         const { x, y } = sampled[i]
-        // SVG origin is top-left; centre on (SVG_W/2, SVG_H/2), flip Y for WebGL
         positions[i*3]   = (x - SVG_W / 2) * sx
         positions[i*3+1] = -(y - SVG_H / 2) * sy + yOff
-        positions[i*3+2] = (Math.random() - 0.5) * 8
-        alphas[i]        = 0.88 + Math.random() * 0.12
+        positions[i*3+2] = (Math.random() - 0.5) * 4
+        alphas[i]        = 0.90 + Math.random() * 0.10
       } else {
-        // Surplus particles: park far behind, nearly invisible
         positions[i*3]   = (Math.random() - 0.5) * W * 2.6
         positions[i*3+1] = (Math.random() - 0.5) * H * 2.6
         positions[i*3+2] = -400 - Math.random() * 200
@@ -319,11 +397,12 @@ export async function sampleLogoPositions(svgUrl, particleCount, W, H) {
       }
       const [r, g, b] = logoPalette[Math.floor(Math.random() * logoPalette.length)]
       colors[i*3]   = r; colors[i*3+1] = g; colors[i*3+2] = b
-      sizes[i]  = 2.5 + Math.random() * 2.5
+      // Larger sizes for thick neon-bar appearance
+      sizes[i]  = 5.0 + Math.random() * 3.5
       phases[i] = Math.random() * Math.PI * 2
     }
 
-    console.log(`[logoSampler] ${allPoints.length} analytic pts -> ${sampled.length} particles, logo ${LOGO_WIDTH}px wide`)
+    console.log(`[logoSampler] step=${step.toFixed(3)} | clipped=${clippedDs.length} paths | unclipped=${unclippedDs.length} paths | ${allPoints.length} pts -> ${sampled.length} particles`)
     return { pos: positions, col: colors, siz: sizes, pha: phases, alp: alphas }
 
   } catch (err) {
