@@ -56,13 +56,8 @@ const Hero = forwardRef(function Hero(_, ref) {
           >
             Parliamo del tuo progetto
           </a>
-          <a
-            href="https://tidycal.com/team/aranea/consulenza-informatica-team-point-1g54756"
-            className="btn-secondary"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Prenota una consulenza
+          <a href="#ecosystem" className="btn-secondary">
+            Scopri il metodo
           </a>
         </div>
 

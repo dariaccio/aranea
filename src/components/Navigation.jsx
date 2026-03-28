@@ -43,6 +43,15 @@ export default function Navigation({ currentSection }) {
       aria-label="Navigation principale"
     >
       <div className={styles.inner}>
+        {/* Logo */}
+        <a href="#hero" className={styles.logo} onClick={(e) => handleClick(e, '#hero')}>
+          <img
+            src="https://www.araneaweb.com/wp-content/uploads/2026/02/Risorsa-5ara.svg"
+            alt="Aranea"
+            className={styles.logoImg}
+          />
+        </a>
+
         {/* Section dots */}
         <div className={styles.dots} role="tablist" aria-label="Sezioni">
           {SECTIONS.map((s, i) => (
@@ -57,6 +66,15 @@ export default function Navigation({ currentSection }) {
             />
           ))}
         </div>
+
+        {/* CTA */}
+        <a
+          href="#cta"
+          className={styles.ctaBtn}
+          onClick={(e) => handleClick(e, '#cta')}
+        >
+          Contattaci
+        </a>
       </div>
     </nav>
   )

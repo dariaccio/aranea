@@ -9,6 +9,7 @@ const CTAFinal = forwardRef(function CTAFinal(_, ref) {
       data-section-index="7"
       className={`${styles.cta} section-layer`}
     >
+      {/* Background image */}
       <div className={styles.bg}>
         <img
           src="https://www.araneaweb.com/wp-content/uploads/2026/02/Firefly.png"
@@ -19,9 +20,18 @@ const CTAFinal = forwardRef(function CTAFinal(_, ref) {
         <div className={styles.overlay} />
       </div>
 
-      <div className={styles.inner}>
-        {/* Spacer reserves space for the particle logo above the text */}
-        <div className={styles.logoSpacer} aria-hidden="true" />
+      <div className={`container ${styles.content}`}>
+        {/* Logo mark */}
+        <div className={styles.logoMark} aria-hidden="true">
+          <img
+            src="/assets/risorsa5ara.svg"
+            alt="Aranea logo"
+            className={styles.logoImg}
+            onError={(e) => {
+              e.target.src = 'https://www.araneaweb.com/wp-content/uploads/2026/02/Risorsa-5ara.svg'
+            }}
+          />
+        </div>
 
         <p className="eyebrow" style={{ justifyContent: 'center' }}>
           Il nodo da cui ripartire
@@ -39,30 +49,23 @@ const CTAFinal = forwardRef(function CTAFinal(_, ref) {
         </p>
 
         <div className={styles.actions}>
-          <a
-            href="https://tidycal.com/team/aranea/consulenza-informatica-team-point-1g54756"
-            className="btn-primary"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Prenota una consulenza
+          <a href="mailto:info@araneaweb.com" className="btn-primary">
+            Richiedi un'analisi iniziale
           </a>
-          <a
-            href="https://tidycal.com/team/aranea/consulenza-informatica-team-point-1g54756-mn27npx"
-            className="btn-secondary"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
+          <a href="mailto:info@araneaweb.com" className="btn-secondary">
             Parliamo del tuo progetto
           </a>
         </div>
 
+        {/* Footer strip */}
         <div className={styles.footer}>
-          <span className={styles.footerTag}>
-            ARANEAWEB.COM &nbsp;|&nbsp; 2026 ALL RIGHTS RESERVED &nbsp;|&nbsp;
-            ARANEA is a trademark of BIT CANTIERI SRL &nbsp;|&nbsp;
-            VAT number 04281290165 &nbsp;|&nbsp; REA BG &ndash; 450560 &nbsp;|&nbsp; Vers. 1.00
-          </span>
+          <span className={styles.footerLogo}>Aranea</span>
+          <span className={styles.footerSep} />
+          <span className={styles.footerTagline}>Web architecture for growth</span>
+          <span className={styles.footerSep} />
+          <a href="mailto:info@araneaweb.com" className={styles.footerLink}>
+            info@araneaweb.com
+          </a>
         </div>
       </div>
     </section>

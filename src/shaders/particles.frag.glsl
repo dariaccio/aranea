@@ -1,30 +1,27 @@
-uniform float uLogoLock;
-
-varying vec3  vColor;
+varying vec3 vColor;
 varying float vAlpha;
-varying float vExpV;
+varying float vDist;
 
 void main() {
-  vec2  uv = gl_PointCoord - 0.5;
-  float d  = length(uv);
-  if (d > 0.5) discard;
+  // Radial distance from point center
+  vec2 uv = gl_PointCoord - 0.5;
+  float dist = length(uv);
 
-  float core  = pow(1.0 - d * 2.0, 3.2);
-  float halo  = pow(max(0.0, 1.0 - d * 2.0), 0.65) * 0.42;
-  float bloom = pow(max(0.0, 1.0 - d * 3.2), 5.0) * 0.60;
+  // Discard outside circle
+  if (dist > 0.5) discard;
 
-  vec3 hotCol   = vec3(0.88, 0.97, 1.00);
-  vec3 pureCyan = vec3(0.0, 0.831, 1.0);
+  // Soft-edge glow: bright core fading to transparent
+  float strength = 1.0 - (dist * 2.0);
+  strength = pow(strength, 2.2);
 
-  vec3 col = mix(vColor, vec3(0.10, 0.88, 1.00), core * 0.48);
-  col = mix(col, hotCol, vExpV * 0.72);
+  // Inner hot white core
+  vec3 coreColor = mix(vColor, vec3(1.0, 1.0, 1.0), strength * 0.55);
 
-  col += vec3(0.0, bloom * 0.83, bloom);
-  col += vColor * halo * (1.0 + uLogoLock * 0.5);
-  col  = mix(col, pureCyan, uLogoLock * 0.88);
+  // Additive bloom: boost brightness at center
+  float bloom = pow(max(0.0, 1.0 - dist * 2.8), 4.0) * 0.6;
+  coreColor += vec3(bloom * 0.4, bloom * 0.8, bloom);
 
-  float alpha = (core + halo * 0.45) * vAlpha;
-  alpha *= 1.0 + vExpV * 0.35 + uLogoLock * 0.90;
+  float alpha = strength * vAlpha;
 
-  gl_FragColor = vec4(col, min(alpha, 1.0));
+  gl_FragColor = vec4(coreColor, alpha);
 }
